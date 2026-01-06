@@ -42,7 +42,7 @@ If a user asks something unrelated, the bot returns:
 - a polite explanation
 
 ### 3) Ask follow-up questions when required
-If the user’s question is missing required context (example: locomotive id / asset id), the bot returns:
+If the user's question is missing required context (example: locomotive id / asset id), the bot returns:
 
 - `status: "needs_followup"`
 - a single clear `followUpQuestion`
@@ -71,6 +71,7 @@ Bot response (example):
   ],
   "readTheseFields": ["dueInspectionDate", "inspectionType", "status"]
 }
+```
 
 ### Example B — next inspection due (locomotive is not known)
 User: **"When is the next inspection due?"**
@@ -85,10 +86,11 @@ Bot response (example):
   "recommendedCalls": [],
   "followUpQuestion": "Which locomotive (assetId or locoId) are you asking about?"
 }
+```
 
 ### Example C — suggesting an update (still not executing)
 
-User: "Mark locomotive L-10 as out of service."
+User: **"Mark locomotive L-10 as out of service."**
 
 Bot response (example):
 ```json
@@ -105,6 +107,7 @@ Bot response (example):
     }
   ]
 }
+```
 
 ### Example D — out of scope question
 User: **"Who own the World Cup?"**
@@ -115,10 +118,13 @@ Bot response (example):
   "version": "1.0",
   "status": "out_of_scope",
   "executionPolicy": "suggest_only",
-  "replyText": "I’m designed to answer questions only about locomotive dashboard data and functions in liteDashboardService.js.",
+  "replyText": "I'm designed to answer questions only about locomotive dashboard data and functions in liteDashboardService.js.",
   "recommendedCalls": [],
   "outOfScopeReason": "The question is not related to the dashboard service or its data."
 }
+```
+
+---
 
 ## Non-goals (things this bot will NOT do)
 
@@ -126,6 +132,8 @@ Bot response (example):
 - It will not directly modify dashboard data by itself.
 - It will not answer unrelated general knowledge questions.
 - It will not invent function names outside `liteDashboardService.js`.
+
+---
 
 ## Integration note
 
