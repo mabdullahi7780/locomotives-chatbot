@@ -1,0 +1,364 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://example.com/schemas/chatResponse.schema.json",
+    "title": "ChatResponse",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "version",
+        "status",
+        "replyText",
+        "executionPolicy",
+        "recommendedCalls"
+    ],
+    "properties": {
+        "version": {
+            "type": "string",
+            "const": "1.0"
+        },
+        "status": {
+            "type": "string",
+            "enum": [
+                "answer",
+                "needs_followup",
+                "out_of_scope",
+                "error"
+            ]
+        },
+        "executionPolicy": {
+            "type": "string",
+            "const": "suggest_only",
+            "description": "Bot recommends function calls from liteDashboardService.js but it never executes them."
+        },
+        "replyText": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-friendly message that is displayed in chat. It should be friendly and polite"
+        },
+        "recommendedCalls": {
+            "type": "array",
+            "description": "Function calls the user SHOULD execute. These calls will be used to describe the next steps which the user must take inorder to complete the request that they asked about from the chatbot",
+            "items": {
+                "$ref": "#/$defs/CallSpec"
+            }
+        },
+        "readTheseFields": {
+            "type": "array",
+            "uniqueItems": true,
+            "description": "Field paths the UI should extract from the function results. This tells the user how to interpret the response/return values that they will get after executing the function",
+            "items": {
+                "type": "string",
+                "minLength": 1
+            }
+        },
+        "followUpQuestion": {
+            "type": "string",
+            "description": "If missing context (like locomotive id), ask exactly one clear question."
+        },
+        "outOfScopeReason": {
+            "type": "string",
+            "description": "Why the request is out-of-scope for liteDashboardService.js."
+        },
+        "notes": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Optional: warnings, assumptions, or UI notes."
+        }
+    },
+    "allOf": [
+        {
+            "if": {
+                "required": [
+                    "status"
+                ],
+                "properties": {
+                    "status": {
+                        "const": "needs_followup"
+                    }
+                }
+            },
+            "then": {
+                "required": [
+                    "followUpQuestion"
+                ],
+                "properties": {
+                    "recommendedCalls": {
+                        "maxItems": 0
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "required": [
+                    "status"
+                ],
+                "properties": {
+                    "status": {
+                        "const": "out_of_scope"
+                    }
+                }
+            },
+            "then": {
+                "required": [
+                    "outOfScopeReason"
+                ],
+                "properties": {
+                    "recommendedCalls": {
+                        "maxItems": 0
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "required": [
+                    "status"
+                ],
+                "properties": {
+                    "status": {
+                        "const": "error"
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "recommendedCalls": {
+                        "maxItems": 0
+                    }
+                }
+            }
+        }
+    ],
+    "$defs": {
+        "CallSpec": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "functionName",
+                "args"
+            ],
+            "properties": {
+                "functionName": {
+                    "type": "string",
+                    "enum": [
+                        "getAllLocomotives",
+                        "getAllTestCodes",
+                        "getAllLocomotivesCount",
+                        "getAllOutOfServiceLocomotivesCount",
+                        "getAllNonCompliantLocomotives",
+                        "getAllInspectionsCompletedTodayCount",
+                        "getAllDailyInspectionLocomotivesCount",
+                        "getAllLocomotiveLastInspectionDate",
+                        "getAllLocomotiveDueInspectionDate",
+                        "getLocoOutOfUseCredit",
+                        "updateDashBoardLocoState",
+                        "updateLocoOutOfUseCredit",
+                        "getLocoNextDueLocoInspection",
+                        "updateDashBoardLocoInspection",
+                        "getLocoMUId",
+                        "updateDashBoardLocoMUId",
+                        "getDashBoardData",
+                        "dashBoardDataBuildUp"
+                    ]
+                },
+                "args": {
+                    "type": "object"
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Short explanation of why this call is relevant. Link it with the return values of the function"
+                }
+            },
+            "oneOf": [
+                {
+                    "properties": {
+                        "functionName": {
+                            "enum": [
+                                "getAllLocomotives",
+                                "getAllTestCodes",
+                                "getAllLocomotivesCount",
+                                "getAllOutOfServiceLocomotivesCount",
+                                "getAllNonCompliantLocomotives",
+                                "getAllInspectionsCompletedTodayCount",
+                                "getAllDailyInspectionLocomotivesCount",
+                                "getAllLocomotiveLastInspectionDate",
+                                "getAllLocomotiveDueInspectionDate",
+                                "getDashBoardData",
+                                "dashBoardDataBuildUp"
+                            ]
+                        },
+                        "args": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "maxProperties": 0
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "functionName": {
+                            "const": "getLocoOutOfUseCredit"
+                        },
+                        "args": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "assetId"
+                            ],
+                            "properties": {
+                                "assetId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "functionName": {
+                            "const": "getLocoNextDueLocoInspection"
+                        },
+                        "args": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "assetId"
+                            ],
+                            "properties": {
+                                "assetId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "functionName": {
+                            "const": "updateDashBoardLocoState"
+                        },
+                        "args": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "locoId"
+                            ],
+                            "properties": {
+                                "locoId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "functionName": {
+                            "const": "updateLocoOutOfUseCredit"
+                        },
+                        "args": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "locoId"
+                            ],
+                            "properties": {
+                                "locoId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "functionName": {
+                            "const": "updateDashBoardLocoInspection"
+                        },
+                        "args": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "date",
+                                "unit",
+                                "testInfo"
+                            ],
+                            "properties": {
+                                "date": {
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "unit": {
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "testInfo": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "functionName": {
+                            "const": "getLocoMUId"
+                        },
+                        "args": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "locoId",
+                                "locos"
+                            ],
+                            "properties": {
+                                "locoId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "locos": {
+                                    "description": "Collection of locos; allow array or object depending on your data model.",
+                                    "oneOf": [
+                                        {
+                                            "type": "array"
+                                        },
+                                        {
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "functionName": {
+                            "const": "updateDashBoardLocoMUId"
+                        },
+                        "args": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "locoId"
+                            ],
+                            "properties": {
+                                "locoId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}
