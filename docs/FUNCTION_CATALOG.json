@@ -1,0 +1,1213 @@
+{
+  "version": "1.2.0",
+  "service": "LiteDashboardService",
+  "sourceFile": "liteDashboardService.js",
+  "generatedAt": "2026-01-06T00:00:00+05:00",
+  "notes": [
+    "Chatbot is advisor-only: it recommends calls but does not execute them.",
+    "Deny-by-default: recommend only functions explicitly marked recommendable=true.",
+    "Safe mode: allow only readOnly=true functions; write/side-effect functions are blocked.",
+    "Service computes 'today' using timezone US/Eastern (constructor sets startOfDay/endOfDay).",
+    "Some functions depend on external services/models (AssetsService, ReportModel, ApplicationLookupModel, assetTestModel, testSchedulesModel).",
+    "Semantics fields (returnSemantics/successCriteria/edgeCases/presentation) are used to keep user-facing explanations deterministic and to reduce interpretation hallucinations."
+  ],
+  "semanticsConventions": {
+    "pathNotation": "Dot paths starting at the function result root (e.g., 'value.summary.noOfLocomotives'). Pattern paths may use '<assetId>' to mean dynamic keys.",
+    "dateHandling": {
+      "display": "Prefer ISO string or localized display in UI; do not invent timezone conversions unless the backend explicitly returns timezone-aware values.",
+      "nullMeaning": "A null date means 'no date available' (distinct from missing object / empty object)."
+    },
+    "errors": {
+      "exceptionHandling": "If the underlying call throws, treat as error regardless of successCriteria. successCriteria only applies to successful (non-throwing) returns."
+    }
+  },
+  "guardrails": {
+    "mode": "safe",
+    "modes": {
+      "safe": {
+        "allowRecommendableOnly": true,
+        "allowReadOnlyOnly": true,
+        "requireArgsSchemaMatch": true,
+        "denyUnknownFunctions": true,
+        "denyAdditionalArgs": true,
+        "denyMissingRequiredArgs": true
+      },
+      "maintenance": {
+        "allowRecommendableOnly": false,
+        "allowReadOnlyOnly": false,
+        "requireArgsSchemaMatch": true,
+        "denyUnknownFunctions": true,
+        "denyAdditionalArgs": true,
+        "denyMissingRequiredArgs": true,
+        "requiresExplicitUserConfirmation": true,
+        "confirmationPhrase": "CONFIRM_WRITE"
+      }
+    },
+    "recommendedCallShape": {
+      "type": "object",
+      "required": ["function", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "function": { "type": "string" },
+        "args": { "type": "object" }
+      }
+    },
+    "functionSelectionRules": [
+      "Select a function only if its name exactly matches a catalog entry.",
+      "Prefer functions with tags matching the user intent (intersection size highest).",
+      "Prefer readOnly=true and recommendable=true.",
+      "If the user intent is broad (dashboard-wide), prefer getDashBoardData.",
+      "If required arguments are missing, do not guess; ask for them or suggest how to find them."
+    ],
+    "argumentNormalizationRules": [
+      "Trim whitespace from all string arguments.",
+      "If a user provides a locomotive identifier, do not coerce types; pass it as a string (assetId/locoId)."
+    ],
+    "fallbackBehavior": {
+      "whenNoFunctionMatches": "out_of_scope",
+      "whenMultipleFunctionsMatch": "needs_followup"
+    }
+  },
+  "entities": {
+    "assetId": {
+      "description": "Unique locomotive asset identifier used by service methods.",
+      "commonUserSynonyms": [
+        "asset id",
+        "assetId",
+        "loco id",
+        "locomotive id",
+        "unit id",
+        "unit",
+        "loco",
+        "locomotive"
+      ]
+    },
+    "locoId": {
+      "description": "Locomotive identifier used by update/helper methods (often the same as assetId).",
+      "commonUserSynonyms": [
+        "loco id",
+        "locomotive id",
+        "unit id",
+        "unit",
+        "asset id",
+        "assetId"
+      ]
+    }
+  },
+  "functions": [
+    {
+      "name": "getAllLocomotives",
+      "displayName": "List all locomotives",
+      "description": "Returns all inspectable locomotive assets (from AssetsService).",
+      "category": "assets",
+      "tags": ["locomotives", "assets", "list", "inventory", "lookup"],
+      "aliases": ["list locomotives", "all locomotives", "show locomotives", "locomotive list", "fleet list"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": {
+        "shape": "Array<any> (assets list) | []",
+        "notes": ["Uses AssetsService.getAllInspectableAssets(); returns res.value.assets when available."],
+        "readTheseFields": ["[].*_id", "[].attributes"]
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Locomotives list",
+          "meaning": "A list of inspectable locomotive asset objects. Exact fields depend on the asset service. Use this to pick an assetId/loco identifier for other calls.",
+          "type": "array",
+          "uiHint": "Render as searchable list/table."
+        },
+        "[].*_id": {
+          "label": "Asset unique id",
+          "meaning": "Primary identifier for a locomotive asset entry (often used as assetId elsewhere).",
+          "type": "string"
+        },
+        "[].attributes": {
+          "label": "Asset attributes",
+          "meaning": "Metadata describing the locomotive (e.g., display identifiers, fields needed for UI).",
+          "type": "object"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "array" }
+      ],
+      "edgeCases": [
+        {
+          "case": "emptyArray",
+          "when": "result is []",
+          "meaning": "No inspectable locomotives were returned (either none exist or the upstream service returned none).",
+          "userGuidance": "Check upstream asset source/service availability or filters."
+        }
+      ],
+      "presentation": {
+        "uiType": "table",
+        "primaryFields": ["[].*_id", "[].attributes"],
+        "sort": { "by": "[] .attributes", "direction": "asc", "note": "Sort by a stable display attribute if available; do not assume a specific attribute name." }
+      },
+      "exampleRecommendedCall": { "function": "getAllLocomotives", "args": {} },
+      "intentExamples": ["Show me all locomotives", "List the fleet", "Which locomotives exist in the system?"]
+    },
+
+    {
+      "name": "getAllTestCodes",
+      "displayName": "List all test codes",
+      "description": "Returns unique enabled test codes used for locomotive inspections.",
+      "category": "inspections",
+      "tags": ["tests", "testCodes", "inspections", "list", "lookup"],
+      "aliases": ["test codes", "inspection codes", "available tests", "list test codes"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": {
+        "shape": "string[]",
+        "notes": ["Aggregates unique testCode values from assetTestModel where disabled=false and isRemoved=false."]
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Test codes",
+          "meaning": "Unique list of enabled inspection test codes. Use these to filter/interpret inspection-related results.",
+          "type": "array",
+          "itemType": "string",
+          "uiHint": "Render as selectable list (chips/dropdown)."
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "array" },
+        { "path": "$", "operator": "itemsAreType", "expected": "string" }
+      ],
+      "edgeCases": [
+        {
+          "case": "emptyArray",
+          "when": "result is []",
+          "meaning": "No enabled test codes were found.",
+          "userGuidance": "Verify test definitions exist and are not disabled/removed."
+        }
+      ],
+      "presentation": {
+        "uiType": "list",
+        "primaryFields": ["$"],
+        "format": { "items": "uppercaseOrAsIs", "note": "Do not change case unless your UI convention requires it." }
+      },
+      "exampleRecommendedCall": { "function": "getAllTestCodes", "args": {} },
+      "intentExamples": ["What inspection test codes do we have?", "List all test codes"]
+    },
+
+    {
+      "name": "getAllLocomotivesCount",
+      "displayName": "Count all locomotives",
+      "description": "Returns total number of locomotives based on dashboard assetData.",
+      "category": "summary",
+      "tags": ["count", "locomotives", "summary", "fleet"],
+      "aliases": ["how many locomotives", "total locomotives", "fleet size"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": { "shape": "number" },
+      "returnSemantics": {
+        "$": {
+          "label": "Total locomotives",
+          "meaning": "Total count of locomotives available in the dashboard dataset.",
+          "type": "number",
+          "uiHint": "Show as KPI card."
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "number" },
+        { "path": "$", "operator": "min", "expected": 0 }
+      ],
+      "edgeCases": [
+        {
+          "case": "zero",
+          "when": "result equals 0",
+          "meaning": "No locomotives are present in the dashboard dataset.",
+          "userGuidance": "If unexpected, verify dashboard build/data source."
+        }
+      ],
+      "presentation": {
+        "uiType": "kpi",
+        "primaryFields": ["$"],
+        "format": { "$": "integer" }
+      },
+      "exampleRecommendedCall": { "function": "getAllLocomotivesCount", "args": {} },
+      "intentExamples": ["How many locomotives do we have?"]
+    },
+
+    {
+      "name": "getAllOutOfServiceLocomotivesCount",
+      "displayName": "Count out-of-service locomotives",
+      "description": "Returns count of locomotives marked out of service.",
+      "category": "summary",
+      "tags": ["count", "outOfService", "status", "summary"],
+      "aliases": ["out of service count", "how many are out of service", "OOS count"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": { "shape": "number" },
+      "returnSemantics": {
+        "$": {
+          "label": "Out of service locomotives",
+          "meaning": "Count of locomotives currently marked out of service in the dashboard dataset.",
+          "type": "number",
+          "uiHint": "Show as KPI card; optionally link to filtered list if available."
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "number" },
+        { "path": "$", "operator": "min", "expected": 0 }
+      ],
+      "edgeCases": [
+        {
+          "case": "zero",
+          "when": "result equals 0",
+          "meaning": "No locomotives are currently marked out of service.",
+          "userGuidance": "If this seems wrong, verify state inputs feeding the dashboard."
+        }
+      ],
+      "presentation": {
+        "uiType": "kpi",
+        "primaryFields": ["$"],
+        "format": { "$": "integer" }
+      },
+      "exampleRecommendedCall": { "function": "getAllOutOfServiceLocomotivesCount", "args": {} },
+      "intentExamples": ["How many locomotives are out of service?"]
+    },
+
+    {
+      "name": "getAllNonCompliantLocomotives",
+      "displayName": "Count non-compliant locomotives",
+      "description": "Returns count of locomotives that are non-compliant (as defined by dashboard logic).",
+      "category": "compliance",
+      "tags": ["count", "nonCompliant", "compliance", "summary"],
+      "aliases": ["non compliant count", "how many are noncompliant", "compliance issues count"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": {
+        "shape": "number",
+        "notes": ["Despite the name, returns a count (not a list)."]
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Non-compliant locomotives",
+          "meaning": "Count of locomotives flagged as non-compliant by dashboard rules.",
+          "type": "number",
+          "uiHint": "Show as KPI card; optionally link to a non-compliant list if you have a separate endpoint."
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "number" },
+        { "path": "$", "operator": "min", "expected": 0 }
+      ],
+      "edgeCases": [
+        {
+          "case": "zero",
+          "when": "result equals 0",
+          "meaning": "No locomotives are currently flagged non-compliant.",
+          "userGuidance": "If unexpected, confirm compliance rules and inspection status inputs."
+        }
+      ],
+      "presentation": {
+        "uiType": "kpi",
+        "primaryFields": ["$"],
+        "format": { "$": "integer" }
+      },
+      "exampleRecommendedCall": { "function": "getAllNonCompliantLocomotives", "args": {} },
+      "intentExamples": ["How many locomotives are non-compliant?"]
+    },
+
+    {
+      "name": "getAllInspectionsCompletedTodayCount",
+      "displayName": "Count inspections completed today",
+      "description": "Returns count of distinct inspections completed today (based on lite test codes, in US/Eastern day bounds).",
+      "category": "inspections",
+      "tags": ["count", "inspections", "today", "daily", "summary"],
+      "aliases": ["inspections today", "completed inspections today", "today inspections count"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": {
+        "shape": "number",
+        "notes": ["Uses service timezone day bounds (US/Eastern)."]
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Inspections completed today",
+          "meaning": "Count of distinct inspection events completed today (as defined by the service).",
+          "type": "number",
+          "uiHint": "Show as KPI card with 'today' label (US/Eastern day definition)."
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "number" },
+        { "path": "$", "operator": "min", "expected": 0 }
+      ],
+      "edgeCases": [
+        {
+          "case": "zero",
+          "when": "result equals 0",
+          "meaning": "No inspections were counted as completed today.",
+          "userGuidance": "If unexpected, verify schedule records for today and test code filters."
+        }
+      ],
+      "presentation": {
+        "uiType": "kpi",
+        "primaryFields": ["$"],
+        "format": { "$": "integer" },
+        "contextLabel": "Today (US/Eastern)"
+      },
+      "exampleRecommendedCall": { "function": "getAllInspectionsCompletedTodayCount", "args": {} },
+      "intentExamples": ["How many inspections were completed today?"]
+    },
+
+    {
+      "name": "getAllDailyInspectionLocomotivesCount",
+      "displayName": "Count locomotives due for daily inspection today",
+      "description": "Returns count of locomotives whose daily inspection due date is today (US/Eastern bounds).",
+      "category": "inspections",
+      "tags": ["count", "dailyInspection", "due", "today", "inspections"],
+      "aliases": ["daily due count", "locos due today", "daily inspections due"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": {
+        "shape": "number",
+        "notes": ["Counts locomotives where assetStates.dailyDue is within startOfDay/endOfDay."]
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Locomotives due for daily inspection today",
+          "meaning": "Count of locomotives with daily inspection due 'today' (as defined by the service day bounds).",
+          "type": "number",
+          "uiHint": "Show as KPI card with optional drill-down to a list if available."
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "number" },
+        { "path": "$", "operator": "min", "expected": 0 }
+      ],
+      "edgeCases": [
+        {
+          "case": "zero",
+          "when": "result equals 0",
+          "meaning": "No locomotives are due for daily inspection today.",
+          "userGuidance": "If unexpected, verify dailyDue fields are populated for locomotives."
+        }
+      ],
+      "presentation": {
+        "uiType": "kpi",
+        "primaryFields": ["$"],
+        "format": { "$": "integer" },
+        "contextLabel": "Today (US/Eastern)"
+      },
+      "exampleRecommendedCall": { "function": "getAllDailyInspectionLocomotivesCount", "args": {} },
+      "intentExamples": ["How many locomotives are due for daily inspection today?"]
+    },
+
+    {
+      "name": "getAllLocomotiveLastInspectionDate",
+      "displayName": "Get last inspection per locomotive",
+      "description": "Returns last inspection info grouped by assetId.",
+      "category": "inspections",
+      "tags": ["inspections", "lastInspection", "history", "perLocomotive", "lookup"],
+      "aliases": ["last inspection dates", "most recent inspection per loco", "last inspected"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": {
+        "shape": "Record<assetId, { assetId: string, date: Date, title: string, testCode: string, user: object }>",
+        "readTheseFields": ["<assetId>.date", "<assetId>.title", "<assetId>.testCode", "<assetId>.user"]
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Last inspection map",
+          "meaning": "Object keyed by assetId. Each value describes the most recent inspection record found for that locomotive.",
+          "type": "object",
+          "uiHint": "Render as table; each row = one assetId."
+        },
+        "<assetId>.assetId": {
+          "label": "Asset id",
+          "meaning": "Locomotive identifier for this record.",
+          "type": "string"
+        },
+        "<assetId>.date": {
+          "label": "Last inspection date",
+          "meaning": "Date/time the last inspection occurred for that locomotive.",
+          "type": "date"
+        },
+        "<assetId>.title": {
+          "label": "Inspection title",
+          "meaning": "Human-friendly name of the inspection/test.",
+          "type": "string"
+        },
+        "<assetId>.testCode": {
+          "label": "Test code",
+          "meaning": "Inspection test code associated with the last inspection record.",
+          "type": "string"
+        },
+        "<assetId>.user": {
+          "label": "Inspector/user",
+          "meaning": "User object associated with the inspection record (structure depends on upstream).",
+          "type": "object"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "object" }
+      ],
+      "edgeCases": [
+        {
+          "case": "emptyObject",
+          "when": "result has no keys",
+          "meaning": "No last-inspection records were found.",
+          "userGuidance": "Verify inspection data exists and is included in the source used to build these results."
+        },
+        {
+          "case": "missingFields",
+          "when": "some assetId entries do not include expected properties",
+          "meaning": "The record exists but is incomplete.",
+          "userGuidance": "Display what exists; avoid inventing missing fields."
+        }
+      ],
+      "presentation": {
+        "uiType": "table",
+        "primaryFields": ["<assetId>.assetId", "<assetId>.date", "<assetId>.title", "<assetId>.testCode"],
+        "format": { "<assetId>.date": "dateTime" },
+        "sort": { "by": "<assetId>.date", "direction": "desc" }
+      },
+      "exampleRecommendedCall": { "function": "getAllLocomotiveLastInspectionDate", "args": {} },
+      "intentExamples": ["Show last inspection date for each locomotive"]
+    },
+
+    {
+      "name": "getAllLocomotiveDueInspectionDate",
+      "displayName": "Get next due inspection per locomotive",
+      "description": "Returns next due inspection info grouped by assetId.",
+      "category": "inspections",
+      "tags": ["inspections", "dueDate", "nextDue", "perLocomotive", "lookup"],
+      "aliases": ["due inspection dates", "next inspection due for each loco", "upcoming inspections"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": {
+        "shape": "Record<assetId, { assetId: string, nextExpiryDate: Date, testCode: string, title: string }>",
+        "readTheseFields": ["<assetId>.nextExpiryDate", "<assetId>.title", "<assetId>.testCode"]
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Next due inspection map",
+          "meaning": "Object keyed by assetId. Each value describes the next due inspection record for that locomotive.",
+          "type": "object",
+          "uiHint": "Render as table; each row = one assetId."
+        },
+        "<assetId>.assetId": {
+          "label": "Asset id",
+          "meaning": "Locomotive identifier for this record.",
+          "type": "string"
+        },
+        "<assetId>.nextExpiryDate": {
+          "label": "Next due date",
+          "meaning": "The due/expiry date for the next inspection/test for that locomotive.",
+          "type": "date"
+        },
+        "<assetId>.title": {
+          "label": "Inspection title",
+          "meaning": "Human-friendly name of the due inspection/test.",
+          "type": "string"
+        },
+        "<assetId>.testCode": {
+          "label": "Test code",
+          "meaning": "Inspection test code associated with the due inspection record.",
+          "type": "string"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "object" }
+      ],
+      "edgeCases": [
+        {
+          "case": "emptyObject",
+          "when": "result has no keys",
+          "meaning": "No due-inspection records were found.",
+          "userGuidance": "Verify inspection scheduling data exists and is included in the source used to compute due dates."
+        },
+        {
+          "case": "nullOrMissingDate",
+          "when": "nextExpiryDate is null or missing for some entries",
+          "meaning": "A due inspection record exists but has no due date available.",
+          "userGuidance": "Display title/testCode; treat due date as unknown."
+        }
+      ],
+      "presentation": {
+        "uiType": "table",
+        "primaryFields": ["<assetId>.assetId", "<assetId>.nextExpiryDate", "<assetId>.title", "<assetId>.testCode"],
+        "format": { "<assetId>.nextExpiryDate": "dateTime" },
+        "sort": { "by": "<assetId>.nextExpiryDate", "direction": "asc" }
+      },
+      "exampleRecommendedCall": { "function": "getAllLocomotiveDueInspectionDate", "args": {} },
+      "intentExamples": ["Which locomotives have inspections coming up?"]
+    },
+
+    {
+      "name": "getLocoOutOfUseCredit",
+      "displayName": "Get out-of-use credit for a locomotive",
+      "description": "Returns out-of-use credit and days for a specific locomotive assetId.",
+      "category": "credits",
+      "tags": ["outOfUse", "credit", "oou", "locomotive", "assetId"],
+      "aliases": ["out of use credit", "oou credit", "credit for loco", "out of service credit"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [{ "name": "assetId", "type": "string", "required": true }],
+      "argsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assetId"],
+        "properties": {
+          "assetId": { "type": "string", "minLength": 1 }
+        }
+      },
+      "returns": {
+        "shape": "{ credit: number, outOfUseDays: number, status: string }",
+        "readTheseFields": ["credit", "outOfUseDays", "status"]
+      },
+      "returnSemantics": {
+        "credit": {
+          "label": "Out-of-use credit",
+          "meaning": "Credit value returned by backend business logic for time the locomotive was out of use. Units are defined by backend business rules.",
+          "type": "number"
+        },
+        "outOfUseDays": {
+          "label": "Out-of-use days",
+          "meaning": "Number of days counted as out-of-use for the credit calculation.",
+          "type": "number"
+        },
+        "status": {
+          "label": "Status",
+          "meaning": "Backend status string describing the credit record state (exact statuses depend on backend logic).",
+          "type": "string"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "object" },
+        { "path": "credit", "operator": "isType", "expected": "number" },
+        { "path": "outOfUseDays", "operator": "isType", "expected": "number" },
+        { "path": "status", "operator": "isType", "expected": "string" }
+      ],
+      "edgeCases": [
+        {
+          "case": "missingAsset",
+          "when": "result is null/undefined or missing expected keys",
+          "meaning": "No credit record was returned for the given assetId.",
+          "userGuidance": "Verify the assetId exists (use getAllLocomotives or getDashBoardData to locate valid IDs)."
+        },
+        {
+          "case": "zeroDaysOrCredit",
+          "when": "outOfUseDays equals 0 or credit equals 0",
+          "meaning": "No out-of-use time/credit is currently applicable for this locomotive.",
+          "userGuidance": "This can be valid; show the values without implying an error."
+        }
+      ],
+      "presentation": {
+        "uiType": "card",
+        "primaryFields": ["credit", "outOfUseDays", "status"],
+        "format": { "credit": "number", "outOfUseDays": "integer", "status": "text" }
+      },
+      "exampleRecommendedCall": { "function": "getLocoOutOfUseCredit", "args": { "assetId": "<ASSET_ID>" } },
+      "intentExamples": ["What is the out-of-use credit for locomotive 123?", "How many out-of-use days does asset ABC have?"],
+      "requires": {
+        "requiredEntities": ["assetId"],
+        "missingEntityPrompt": "Provide the locomotive assetId (the unique ID used in the dashboard data)."
+      }
+    },
+
+    {
+      "name": "updateDashBoardLocoState",
+      "displayName": "Update dashboard locomotive state",
+      "description": "Updates dashboard state fields for a locomotive (writes to ReportModel).",
+      "category": "write",
+      "tags": ["update", "state", "outOfService", "write", "dangerous"],
+      "aliases": ["update loco state", "set out of service", "change loco status"],
+      "recommendable": false,
+      "readOnly": false,
+      "dangerLevel": 3,
+      "params": [{ "name": "locoId", "type": "string", "required": true }],
+      "argsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["locoId"],
+        "properties": {
+          "locoId": { "type": "string", "minLength": 1 }
+        }
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Update result",
+          "meaning": "Return value is implementation-defined for write operations. Treat a non-throwing call as 'attempted'. Prefer inspecting explicit update counters if returned by your DB layer.",
+          "type": "any"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "exists", "expected": true }
+      ],
+      "edgeCases": [
+        {
+          "case": "noChange",
+          "when": "operation returns successfully but indicates no records updated (if such metadata exists)",
+          "meaning": "The locomotive state may already match the intended value or the locoId was not found.",
+          "userGuidance": "Verify locoId and current state before retrying."
+        }
+      ],
+      "presentation": {
+        "uiType": "dangerAction",
+        "primaryFields": ["$"],
+        "requiresConfirmation": true,
+        "confirmationToken": "CONFIRM_WRITE"
+      },
+      "reasonBlocked": "Writes to ReportModel (updateOne). Side-effect function; blocked in safe mode.",
+      "exampleRecommendedCall": { "function": "updateDashBoardLocoState", "args": { "locoId": "<LOCO_ID>" } }
+    },
+
+    {
+      "name": "updateLocoOutOfUseCredit",
+      "displayName": "Recalculate and update out-of-use credit",
+      "description": "Recomputes out-of-use credit for a locomotive and writes results to ReportModel.",
+      "category": "write",
+      "tags": ["update", "outOfUse", "credit", "write", "dangerous"],
+      "aliases": ["recalculate oou credit", "update out of use credit"],
+      "recommendable": false,
+      "readOnly": false,
+      "dangerLevel": 3,
+      "params": [{ "name": "locoId", "type": "string", "required": true }],
+      "argsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["locoId"],
+        "properties": {
+          "locoId": { "type": "string", "minLength": 1 }
+        }
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Update result",
+          "meaning": "Return value is implementation-defined for write operations. Treat a non-throwing call as 'attempted'.",
+          "type": "any"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "exists", "expected": true }
+      ],
+      "edgeCases": [
+        {
+          "case": "noChange",
+          "when": "operation returns successfully but indicates no records updated (if such metadata exists)",
+          "meaning": "Credit may already be up-to-date or the locoId was not found.",
+          "userGuidance": "Verify locoId and re-check credit via getLocoOutOfUseCredit."
+        }
+      ],
+      "presentation": {
+        "uiType": "dangerAction",
+        "primaryFields": ["$"],
+        "requiresConfirmation": true,
+        "confirmationToken": "CONFIRM_WRITE"
+      },
+      "reasonBlocked": "Writes to ReportModel (updateOne). Side-effect function; blocked in safe mode.",
+      "exampleRecommendedCall": { "function": "updateLocoOutOfUseCredit", "args": { "locoId": "<LOCO_ID>" } }
+    },
+
+    {
+      "name": "getLocoNextDueLocoInspection",
+      "displayName": "Get next due inspection for a locomotive",
+      "description": "Returns the earliest upcoming inspection (nextExpiryDate) for a given assetId, or {} if none.",
+      "category": "inspections",
+      "tags": ["inspection", "nextDue", "dueDate", "assetId", "locomotive"],
+      "aliases": ["next inspection due", "due date for loco", "upcoming inspection for loco"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [{ "name": "assetId", "type": "string", "required": true }],
+      "argsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assetId"],
+        "properties": {
+          "assetId": { "type": "string", "minLength": 1 }
+        }
+      },
+      "returns": {
+        "shape": "{ assetId: string, nextExpiryDate: Date|null, title: string, testCode: string } | {}",
+        "readTheseFields": ["assetId", "nextExpiryDate", "title", "testCode"],
+        "notes": ["Sorts by nextExpiryDate ascending and returns the first non-null nextExpiryDate record."]
+      },
+      "returnSemantics": {
+        "assetId": {
+          "label": "Asset id",
+          "meaning": "Locomotive identifier for the returned due inspection record.",
+          "type": "string"
+        },
+        "nextExpiryDate": {
+          "label": "Next due date",
+          "meaning": "Date/time when the next inspection is due. If null, the next due date is unknown/unavailable for the returned record.",
+          "type": "date|null"
+        },
+        "title": {
+          "label": "Inspection title",
+          "meaning": "Human-friendly name of the inspection/test that is next due.",
+          "type": "string"
+        },
+        "testCode": {
+          "label": "Test code",
+          "meaning": "Inspection test code for the next due inspection.",
+          "type": "string"
+        },
+        "$_emptyObjectMeaning": {
+          "label": "Empty object meaning",
+          "meaning": "An empty object {} means no next due inspection record was found for that assetId (or no qualifying schedule/expiry data exists).",
+          "type": "meta"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "object" },
+        {
+          "path": "$",
+          "operator": "oneOf",
+          "expected": [
+            {
+              "shape": "nonEmptyObject",
+              "requiredPaths": ["assetId", "title", "testCode"]
+            },
+            {
+              "shape": "emptyObject"
+            }
+          ]
+        }
+      ],
+      "edgeCases": [
+        {
+          "case": "emptyObject",
+          "when": "result has no keys",
+          "meaning": "No due inspection was found for this assetId (or the assetId is not present in the dataset).",
+          "userGuidance": "Verify the assetId. If you need a valid ID, use getAllLocomotives or getDashBoardData to find it."
+        },
+        {
+          "case": "nullDate",
+          "when": "nextExpiryDate is null",
+          "meaning": "A due inspection record exists but the due date is not available.",
+          "userGuidance": "Display title/testCode; treat due date as unknown and do not invent a date."
+        }
+      ],
+      "presentation": {
+        "uiType": "card",
+        "primaryFields": ["nextExpiryDate", "title", "testCode"],
+        "format": { "nextExpiryDate": "dateTime", "title": "text", "testCode": "text" },
+        "emptyState": {
+          "when": "emptyObject",
+          "title": "No upcoming due inspection found",
+          "message": "No due inspection record is available for this asset."
+        }
+      },
+      "exampleRecommendedCall": { "function": "getLocoNextDueLocoInspection", "args": { "assetId": "<ASSET_ID>" } },
+      "intentExamples": ["When is the next inspection due for locomotive 123?", "What is the next due inspection for asset ABC?"],
+      "requires": {
+        "requiredEntities": ["assetId"],
+        "missingEntityPrompt": "Provide the locomotive assetId (the unique ID used in the dashboard data)."
+      }
+    },
+
+    {
+      "name": "updateDashBoardLocoInspection",
+      "displayName": "Update dashboard inspection fields for a locomotive",
+      "description": "Writes LastInspec and DueInspec info to the dashboard for a locomotive (side-effect).",
+      "category": "write",
+      "tags": ["update", "inspection", "lastInspection", "dueInspection", "write", "dangerous"],
+      "aliases": ["update inspection", "record inspection", "set last inspection", "set due inspection"],
+      "recommendable": false,
+      "readOnly": false,
+      "dangerLevel": 3,
+      "params": [
+        { "name": "date", "type": "string|Date", "required": true },
+        { "name": "unit", "type": "{ id: string }", "required": true },
+        { "name": "testInfo", "type": "{ title: string, testCode: string, user: object }", "required": true }
+      ],
+      "argsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["date", "unit", "testInfo"],
+        "properties": {
+          "date": { "type": ["string", "object"] },
+          "unit": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id"],
+            "properties": { "id": { "type": "string", "minLength": 1 } }
+          },
+          "testInfo": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["title", "testCode", "user"],
+            "properties": {
+              "title": { "type": "string" },
+              "testCode": { "type": "string" },
+              "user": { "type": "object" }
+            }
+          }
+        }
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Update result",
+          "meaning": "Return value is implementation-defined for write operations. Treat a non-throwing call as 'attempted'.",
+          "type": "any"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "exists", "expected": true }
+      ],
+      "edgeCases": [
+        {
+          "case": "noChange",
+          "when": "operation returns successfully but indicates no records updated (if such metadata exists)",
+          "meaning": "Inspection fields may already be set or the target locomotive was not found.",
+          "userGuidance": "Verify unit.id/locoId and re-check dashboard data."
+        }
+      ],
+      "presentation": {
+        "uiType": "dangerAction",
+        "primaryFields": ["$"],
+        "requiresConfirmation": true,
+        "confirmationToken": "CONFIRM_WRITE"
+      },
+      "reasonBlocked": "Writes LastInspec and DueInspec into ReportModel (updateOne). Side-effect function; blocked in safe mode.",
+      "exampleRecommendedCall": {
+        "function": "updateDashBoardLocoInspection",
+        "args": {
+          "date": "<DATE>",
+          "unit": { "id": "<LOCO_ID>" },
+          "testInfo": { "title": "<TITLE>", "testCode": "<TEST_CODE>", "user": {} }
+        }
+      }
+    },
+
+    {
+      "name": "getLocoMUId",
+      "displayName": "Get MU head locomotive number (helper)",
+      "description": "Internal helper that resolves MU head locomotive number (Loco No) for a locoId using ApplicationLookupModel and the locomotives list.",
+      "category": "internal",
+      "tags": ["mu", "helper", "internal", "lookup"],
+      "aliases": ["mu id helper", "resolve mu head", "get mu locomotive number"],
+      "recommendable": false,
+      "readOnly": true,
+      "dangerLevel": 1,
+      "params": [
+        { "name": "locoId", "type": "string", "required": true },
+        { "name": "locos", "type": "Array<any>", "required": true }
+      ],
+      "argsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["locoId", "locos"],
+        "properties": {
+          "locoId": { "type": "string", "minLength": 1 },
+          "locos": { "type": "array" }
+        }
+      },
+      "returns": {
+        "shape": "string|null",
+        "notes": ["Helper used internally; not a user-facing query endpoint."]
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "MU head locomotive number",
+          "meaning": "Returns the MU head locomotive number (often a display identifier) if it can be resolved; otherwise null.",
+          "type": "string|null"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "isType", "expected": "stringOrNull" }
+      ],
+      "edgeCases": [
+        {
+          "case": "null",
+          "when": "result is null",
+          "meaning": "MU head could not be resolved for the given locoId with the provided locomotives list.",
+          "userGuidance": "Treat as 'unknown MU head'. Do not fabricate a MU id."
+        }
+      ],
+      "presentation": {
+        "uiType": "internal",
+        "primaryFields": ["$"],
+        "format": { "$": "text" }
+      },
+      "reasonBlocked": "Internal helper; not a user-facing query endpoint."
+    },
+
+    {
+      "name": "updateDashBoardLocoMUId",
+      "displayName": "Update MU Id on dashboard",
+      "description": "Computes MU Id and writes it into ReportModel for a locomotive (side-effect).",
+      "category": "write",
+      "tags": ["update", "mu", "write", "dangerous"],
+      "aliases": ["update mu id", "set mu id"],
+      "recommendable": false,
+      "readOnly": false,
+      "dangerLevel": 3,
+      "params": [{ "name": "locoId", "type": "string", "required": true }],
+      "argsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["locoId"],
+        "properties": {
+          "locoId": { "type": "string", "minLength": 1 }
+        }
+      },
+      "returnSemantics": {
+        "$": {
+          "label": "Update result",
+          "meaning": "Return value is implementation-defined for write operations. Treat a non-throwing call as 'attempted'.",
+          "type": "any"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "exists", "expected": true }
+      ],
+      "edgeCases": [
+        {
+          "case": "noChange",
+          "when": "operation returns successfully but indicates no records updated (if such metadata exists)",
+          "meaning": "MU id may already be set or the locoId was not found.",
+          "userGuidance": "Verify locoId and check MU mapping availability."
+        }
+      ],
+      "presentation": {
+        "uiType": "dangerAction",
+        "primaryFields": ["$"],
+        "requiresConfirmation": true,
+        "confirmationToken": "CONFIRM_WRITE"
+      },
+      "reasonBlocked": "Writes muId into ReportModel (updateOne). Side-effect function; blocked in safe mode.",
+      "exampleRecommendedCall": { "function": "updateDashBoardLocoMUId", "args": { "locoId": "<LOCO_ID>" } }
+    },
+
+    {
+      "name": "getDashBoardData",
+      "displayName": "Get dashboard summary and asset data",
+      "description": "Returns the main dashboard payload including summary counts and locomotives assetData map.",
+      "category": "dashboard",
+      "tags": ["dashboard", "summary", "assetData", "overview", "counts"],
+      "aliases": ["dashboard data", "overall dashboard", "summary", "main report", "overview"],
+      "recommendable": true,
+      "readOnly": true,
+      "dangerLevel": 0,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returns": {
+        "shape": "{ status: number, value: { summary: object, assetData: Record<assetId, object> } }",
+        "readTheseFields": [
+          "status",
+          "value.summary.noOfLocomotives",
+          "value.summary.locomotiveDailyInspections",
+          "value.summary.locomotivesDueForDailyInspec",
+          "value.summary.locomotivesOutOfService",
+          "value.summary.nonCompliantLocomotives",
+          "value.summary.compliantLocomotives",
+          "value.assetData"
+        ],
+        "notes": ["assetData corresponds to ReportModel.data.locomotives.", "If status is not 200, treat as error."]
+      },
+      "returnSemantics": {
+        "status": {
+          "label": "Status",
+          "meaning": "HTTP-like status code returned by the service. 200 indicates success; non-200 indicates failure/exception state handled by service.",
+          "type": "number"
+        },
+        "value.summary.noOfLocomotives": {
+          "label": "Total locomotives",
+          "meaning": "Total number of locomotives in the dashboard dataset.",
+          "type": "number"
+        },
+        "value.summary.locomotiveDailyInspections": {
+          "label": "Daily inspections completed",
+          "meaning": "Count of daily inspections completed (per dashboard computation).",
+          "type": "number"
+        },
+        "value.summary.locomotivesDueForDailyInspec": {
+          "label": "Locomotives due for daily inspection",
+          "meaning": "Count of locomotives due for daily inspection (per dashboard computation).",
+          "type": "number"
+        },
+        "value.summary.locomotivesOutOfService": {
+          "label": "Out of service",
+          "meaning": "Count of locomotives marked out of service.",
+          "type": "number"
+        },
+        "value.summary.nonCompliantLocomotives": {
+          "label": "Non-compliant",
+          "meaning": "Count of locomotives flagged as non-compliant.",
+          "type": "number"
+        },
+        "value.summary.compliantLocomotives": {
+          "label": "Compliant",
+          "meaning": "Count of locomotives flagged as compliant.",
+          "type": "number"
+        },
+        "value.assetData": {
+          "label": "Asset data map",
+          "meaning": "Object keyed by assetId containing per-locomotive dashboard data used by the UI. Field-level meaning depends on the dashboard schema (e.g., inspection dates, credits, states).",
+          "type": "object"
+        }
+      },
+      "successCriteria": [
+        { "path": "status", "operator": "equals", "expected": 200 },
+        { "path": "value", "operator": "isType", "expected": "object" },
+        { "path": "value.summary", "operator": "isType", "expected": "object" },
+        { "path": "value.assetData", "operator": "isType", "expected": "object" }
+      ],
+      "edgeCases": [
+        {
+          "case": "non200Status",
+          "when": "status is not 200",
+          "meaning": "Service indicates failure or could not produce dashboard payload.",
+          "userGuidance": "Show an error state. Do not interpret value fields if status != 200."
+        },
+        {
+          "case": "emptyAssetData",
+          "when": "value.assetData has no keys",
+          "meaning": "Dashboard payload exists but contains no locomotive entries.",
+          "userGuidance": "If unexpected, confirm dashboard build/data ingestion."
+        },
+        {
+          "case": "missingSummaryFields",
+          "when": "some summary fields are missing",
+          "meaning": "Dashboard payload is partial/incomplete.",
+          "userGuidance": "Display only available fields; do not invent missing values."
+        }
+      ],
+      "presentation": {
+        "uiType": "dashboard",
+        "primaryFields": [
+          "value.summary.noOfLocomotives",
+          "value.summary.locomotivesOutOfService",
+          "value.summary.nonCompliantLocomotives",
+          "value.summary.compliantLocomotives",
+          "value.summary.locomotiveDailyInspections",
+          "value.summary.locomotivesDueForDailyInspec"
+        ],
+        "format": {
+          "value.summary.*": "integer"
+        },
+        "drilldown": {
+          "assetMapField": "value.assetData",
+          "note": "Use assetData keys for per-locomotive drilldown."
+        }
+      },
+      "exampleRecommendedCall": { "function": "getDashBoardData", "args": {} },
+      "intentExamples": ["Show me the dashboard summary", "Give me the full dashboard data"]
+    },
+
+    {
+      "name": "dashBoardDataBuildUp",
+      "displayName": "Rebuild dashboard data (bulk job)",
+      "description": "Rebuilds dashboard data by aggregating locomotives, inspections, MU ids, credits, and saving to ReportModel (side-effect).",
+      "category": "write",
+      "tags": ["rebuild", "dashboard", "bulk", "write", "dangerous"],
+      "aliases": ["rebuild dashboard", "refresh dashboard", "build dashboard data"],
+      "recommendable": false,
+      "readOnly": false,
+      "dangerLevel": 3,
+      "params": [],
+      "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "returnSemantics": {
+        "$": {
+          "label": "Rebuild result",
+          "meaning": "Return value is implementation-defined for rebuild jobs. A non-throwing call indicates the job executed; verify by re-fetching dashboard data.",
+          "type": "any"
+        }
+      },
+      "successCriteria": [
+        { "path": "$", "operator": "exists", "expected": true }
+      ],
+      "edgeCases": [
+        {
+          "case": "partialRebuild",
+          "when": "job completes but dashboard data appears incomplete afterward",
+          "meaning": "Underlying source data may be missing or intermediate steps may have failed silently.",
+          "userGuidance": "Re-check upstream sources and then re-run (only in maintenance mode)."
+        }
+      ],
+      "presentation": {
+        "uiType": "dangerAction",
+        "primaryFields": ["$"],
+        "requiresConfirmation": true,
+        "confirmationToken": "CONFIRM_WRITE"
+      },
+      "reasonBlocked": "Rebuilds and saves dashboard data (writes to ReportModel via save/new save). Side-effect function; blocked in safe mode.",
+      "exampleRecommendedCall": { "function": "dashBoardDataBuildUp", "args": {} }
+    }
+  ],
+  "indexes": {
+    "functionNames": [
+      "getAllLocomotives",
+      "getAllTestCodes",
+      "getAllLocomotivesCount",
+      "getAllOutOfServiceLocomotivesCount",
+      "getAllNonCompliantLocomotives",
+      "getAllInspectionsCompletedTodayCount",
+      "getAllDailyInspectionLocomotivesCount",
+      "getAllLocomotiveLastInspectionDate",
+      "getAllLocomotiveDueInspectionDate",
+      "getLocoOutOfUseCredit",
+      "updateDashBoardLocoState",
+      "updateLocoOutOfUseCredit",
+      "getLocoNextDueLocoInspection",
+      "updateDashBoardLocoInspection",
+      "getLocoMUId",
+      "updateDashBoardLocoMUId",
+      "getDashBoardData",
+      "dashBoardDataBuildUp"
+    ],
+    "recommendableFunctionNames": [
+      "getAllLocomotives",
+      "getAllTestCodes",
+      "getAllLocomotivesCount",
+      "getAllOutOfServiceLocomotivesCount",
+      "getAllNonCompliantLocomotives",
+      "getAllInspectionsCompletedTodayCount",
+      "getAllDailyInspectionLocomotivesCount",
+      "getAllLocomotiveLastInspectionDate",
+      "getAllLocomotiveDueInspectionDate",
+      "getLocoOutOfUseCredit",
+      "getLocoNextDueLocoInspection",
+      "getDashBoardData"
+    ],
+    "safeModeFunctionNames": [
+      "getAllLocomotives",
+      "getAllTestCodes",
+      "getAllLocomotivesCount",
+      "getAllOutOfServiceLocomotivesCount",
+      "getAllNonCompliantLocomotives",
+      "getAllInspectionsCompletedTodayCount",
+      "getAllDailyInspectionLocomotivesCount",
+      "getAllLocomotiveLastInspectionDate",
+      "getAllLocomotiveDueInspectionDate",
+      "getLocoOutOfUseCredit",
+      "getLocoNextDueLocoInspection",
+      "getDashBoardData"
+    ]
+  }
+}
