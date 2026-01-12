@@ -776,1017 +776,235 @@ export const INTENT_CATALOG = defineIntents({
     ],
   },
   LOCO_OUT_OF_USE_DATE: {
-    description: "Get out-of-use date for a locomotive (if present).",
+    description: "Get when a locomotive went out of use",
     requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.assetStates.outOfUseDate"],
     followUpQuestion: "Which locomotive (assetId or number)?",
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: [
+      "value.assetData.<assetId>.assetStates.outOfUseDate",
+      "value.assetData.<assetId>.assetStates.outOfUse",
+    ],
     safety: "safe",
     triggerPhrases: [
       "out of use date",
-      "when taken out of service",
-      "out of service date",
-      "oou date",
+      "when did go out of use",
+      "outofusedate",
+      "out of use start",
+      "when out of use",
+      "go out of use",
+      "went out of use",
     ],
-    exampleQuestions: [
-      "When was loco 4430 marked out of use?",
-      "Out-of-use date for assetId XYZ?",
-    ],
-  },
-  LOCO_STATUS_NON_COMPLIANT: {
-    description: "Check whether a locomotive is non-compliant.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.assetStates.nonCompliant"],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "non compliant status",
-      "is it non compliant",
-      "compliance status",
-      "violations status",
-    ],
-    exampleQuestions: [
-      "Is loco 8772 non-compliant?",
-      "Non-compliant status for assetId XYZ?",
-    ],
-  },
-  LOCO_DAILY_DUE_DATE: {
-    description: "Get daily due timestamp/date for a locomotive (if present).",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.assetStates.dailyDue"],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "daily due for loco",
-      "daily inspection due date",
-      "when is daily due",
-      "dailyDue",
-    ],
-    exampleQuestions: [
-      "When is loco 4430 due for daily inspection?",
-      "Daily due date for assetId XYZ?",
-    ],
+    exampleQuestions: ["When did locomotive 8778 go out of use?"],
   },
   LOCO_ENGINE_HOURS: {
-    description: "Get engine hours for a locomotive.",
+    description: "Get engine hours for a locomotive",
     requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.assetStates.engineHour"],
     followUpQuestion: "Which locomotive (assetId or number)?",
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: ["value.assetData.<assetId>.assetStates.engineHour"],
     safety: "safe",
     triggerPhrases: [
       "engine hours",
-      "hours on engine",
-      "engineHour",
-      "running hours",
+      "enginehour",
+      "engine hour",
+      "hours for locomotive",
+      "what are the engine hours",
+      "show engine hours",
     ],
-    exampleQuestions: [
-      "How many engine hours does loco 4430 have?",
-      "Engine hours for assetId XYZ?",
-    ],
+    exampleQuestions: ["What are the engine hours for locomotive 4430?"],
   },
-  LOCO_AUTO_BLUECARD_INITIALIZE_FLAG: {
-    description: "Read autoBlueCardInitialize flag for a locomotive.",
+  LOCO_AUTO_BLUE_CARD: {
+    description: "Check autoBlueCardInitialize setting for a locomotive",
     requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: [
-      "value.assetData.<assetId>.assetStates.autoBlueCardInitialize",
-    ],
     followUpQuestion: "Which locomotive (assetId or number)?",
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: ["value.assetData.<assetId>.assetStates.autoBlueCardInitialize"],
     safety: "safe",
     triggerPhrases: [
-      "auto bluecard",
+      "autobluecardinitiialize",
+      "auto blue card",
+      "blue card",
+      "bluecard",
+      "auto blue card initialize",
       "blue card initialize",
-      "autoBlueCardInitialize",
+      "blue card enabled",
     ],
-    exampleQuestions: ["Is auto bluecard initialize set for loco 4430?"],
+    exampleQuestions: ["Is autoBlueCardInitialize enabled for locomotive 8778?"],
   },
-  LOCO_BASIC_METADATA: {
-    description: "Read basic locomotive metadata (id, number, name, MU id).",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: [
-      "value.assetData.<assetId>.id",
-      "value.assetData.<assetId>.locoNo",
-      "value.assetData.<assetId>.name",
-      "value.assetData.<assetId>.muId",
-    ],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "loco details",
-      "metadata",
-      "basic info",
-      "id name number",
-      "mu id",
-    ],
-    exampleQuestions: [
-      "Show basic info for loco 4430.",
-      "What are the details for assetId XYZ?",
-    ],
-  },
-  LOCO_OUT_OF_USE_CREDIT_SUMMARY: {
-    description: "Get out-of-use credit summary for a locomotive.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getLocoOutOfUseCredit",
-        args: {
-          assetId: "$assetId",
-        },
-      },
-    ],
-    returns:
-      "getLocoOutOfUseCredit -> { credit:number, outOfUseDays:number, status:string }",
-    readTheseFields: ["credit", "outOfUseDays", "status"],
-    followUpQuestion:
-      "Which locomotive assetId (or loco number so I can look it up)?",
-    safety: "safe",
-    triggerPhrases: [
-      "out of use credit",
-      "oou credit",
-      "credit summary",
-      "credit status",
-    ],
-    exampleQuestions: [
-      "What's the out-of-use credit for loco 4430?",
-      "Show OOU credit summary for assetId XYZ.",
-    ],
-  },
-  LOCO_OUT_OF_USE_CREDIT_VALUE_ONLY: {
-    description: "Get out-of-use credit value for a locomotive.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getLocoOutOfUseCredit",
-        args: {
-          assetId: "$assetId",
-        },
-      },
-    ],
-    returns:
-      "getLocoOutOfUseCredit -> { credit:number, outOfUseDays:number, status:string }",
-    readTheseFields: ["credit"],
-    followUpQuestion:
-      "Which locomotive assetId (or loco number so I can look it up)?",
-    safety: "safe",
-    triggerPhrases: ["credit amount", "oou credit value", "credit balance"],
-    exampleQuestions: ["How much out-of-use credit does loco 4430 have?"],
-  },
-  LOCO_OUT_OF_USE_DAYS_ONLY: {
-    description: "Get out-of-use days for a locomotive.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getLocoOutOfUseCredit",
-        args: {
-          assetId: "$assetId",
-        },
-      },
-    ],
-    returns:
-      "getLocoOutOfUseCredit -> { credit:number, outOfUseDays:number, status:string }",
-    readTheseFields: ["outOfUseDays"],
-    followUpQuestion:
-      "Which locomotive assetId (or loco number so I can look it up)?",
-    safety: "safe",
-    triggerPhrases: ["out of use days", "days out of use", "oou days"],
-    exampleQuestions: ["How many days has loco 4430 been out of use?"],
-  },
-  LOCO_OUT_OF_USE_CREDIT_FROM_DASHBOARD: {
-    description:
-      "Read out-of-use credit values from dashboard-stored assetData.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: [
-      "value.assetData.<assetId>.outOfUseCredit.credit",
-      "value.assetData.<assetId>.outOfUseCredit.outOfUseDays",
-      "value.assetData.<assetId>.outOfUseCredit.status",
-    ],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "oou credit (dashboard)",
-      "credit from dashboard",
-      "stored credit",
-    ],
-    exampleQuestions: ["Show me the stored OOU credit fields for loco 4430."],
-  },
-  LOCO_NEXT_DUE_INSPECTION: {
-    description:
-      "Get the next due inspection for a locomotive (service helper).",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getLocoNextDueLocoInspection",
-        args: {
-          assetId: "$assetId",
-        },
-      },
-    ],
-    returns:
-      "getLocoNextDueLocoInspection -> { assetId, nextExpiryDate, title, testCode } | {}",
-    readTheseFields: ["nextExpiryDate", "title", "testCode"],
-    followUpQuestion:
-      "Which locomotive assetId (or loco number so I can look it up)?",
-    safety: "safe",
-    triggerPhrases: [
-      "next inspection due",
-      "next due inspection",
-      "when is next due",
-      "upcoming inspection",
-      "expiry date",
-    ],
-    exampleQuestions: [
-      "When is loco 4430 due next?",
-      "Next inspection due for assetId XYZ?",
-    ],
-  },
-  LOCO_NEXT_DUE_INSPECTION_DATE_ONLY: {
-    description: "Get next due inspection date for a locomotive.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getLocoNextDueLocoInspection",
-        args: {
-          assetId: "$assetId",
-        },
-      },
-    ],
-    returns:
-      "getLocoNextDueLocoInspection -> { assetId, nextExpiryDate, title, testCode } | {}",
-    readTheseFields: ["nextExpiryDate"],
-    followUpQuestion:
-      "Which locomotive assetId (or loco number so I can look it up)?",
-    safety: "safe",
-    triggerPhrases: ["next expiry date", "due date only", "when due"],
-    exampleQuestions: ["What's the next due date for loco 4430?"],
-  },
-  LOCO_NEXT_DUE_INSPECTION_TEST_CODE_ONLY: {
-    description: "Get next due inspection test code for a locomotive.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getLocoNextDueLocoInspection",
-        args: {
-          assetId: "$assetId",
-        },
-      },
-    ],
-    returns:
-      "getLocoNextDueLocoInspection -> { assetId, nextExpiryDate, title, testCode } | {}",
-    readTheseFields: ["testCode"],
-    followUpQuestion:
-      "Which locomotive assetId (or loco number so I can look it up)?",
-    safety: "safe",
-    triggerPhrases: ["next test code", "due test code", "inspection code"],
-    exampleQuestions: [
-      "What's the next due inspection test code for loco 4430?",
-    ],
-  },
-  LOCO_NEXT_DUE_INSPECTION_TITLE_ONLY: {
-    description: "Get next due inspection title for a locomotive.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getLocoNextDueLocoInspection",
-        args: {
-          assetId: "$assetId",
-        },
-      },
-    ],
-    returns:
-      "getLocoNextDueLocoInspection -> { assetId, nextExpiryDate, title, testCode } | {}",
-    readTheseFields: ["title"],
-    followUpQuestion:
-      "Which locomotive assetId (or loco number so I can look it up)?",
-    safety: "safe",
-    triggerPhrases: [
-      "next inspection title",
-      "inspection type",
-      "due inspection name",
-    ],
-    exampleQuestions: ["What inspection is due next for loco 4430?"],
-  },
-  LOCO_DUE_INSPECTION_FROM_DASHBOARD: {
-    description: "Read due inspection fields from dashboard-stored assetData.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: [
-      "value.assetData.<assetId>.DueInspec.nextExpiryDate",
-      "value.assetData.<assetId>.DueInspec.title",
-      "value.assetData.<assetId>.DueInspec.testCode",
-    ],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "due inspection (dashboard)",
-      "stored due inspection",
-      "DueInspec",
-    ],
-    exampleQuestions: ["Show stored due inspection fields for loco 4430."],
-  },
-  LOCO_LAST_INSPECTION_SUMMARY: {
-    description:
-      "Read last inspection summary from dashboard-stored assetData.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: [
-      "value.assetData.<assetId>.LastInspec.date",
-      "value.assetData.<assetId>.LastInspec.title",
-      "value.assetData.<assetId>.LastInspec.testCode",
-    ],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "last inspection",
-      "most recent inspection",
-      "previous inspection",
-      "LastInspec",
-    ],
-    exampleQuestions: [
-      "When was loco 4430 last inspected?",
-      "Show last inspection for assetId XYZ.",
-    ],
-  },
-  LOCO_LAST_INSPECTION_DATE_ONLY: {
-    description: "Read last inspection date from dashboard-stored assetData.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.LastInspec.date"],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "last inspection date",
-      "date of last inspection",
-      "when last inspected",
-    ],
-    exampleQuestions: ["What's the last inspection date for loco 4430?"],
-  },
-  LOCO_LAST_INSPECTION_TEST_CODE_ONLY: {
-    description:
-      "Read last inspection test code from dashboard-stored assetData.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.LastInspec.testCode"],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "last test code",
-      "previous inspection code",
-      "last inspection code",
-    ],
-    exampleQuestions: ["What was the last inspection test code for loco 4430?"],
-  },
-  LOCO_LAST_INSPECTION_TITLE_ONLY: {
-    description: "Read last inspection title from dashboard-stored assetData.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.LastInspec.title"],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    triggerPhrases: [
-      "last inspection title",
-      "what inspection was last",
-      "previous inspection type",
-    ],
-    exampleQuestions: ["What was the last inspection type for loco 4430?"],
-  },
-  LOCO_LAST_INSPECTION_INSPECTOR_NAME: {
-    description:
-      "Read last inspection inspector name from dashboard-stored assetData.",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.LastInspec.user.name"],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    notes:
-      "PII: name only is typically acceptable; follow your redaction policy.",
-    triggerPhrases: [
-      "who inspected",
-      "inspector name",
-      "performed by",
-      "inspected by",
-    ],
-    exampleQuestions: ["Who did the last inspection on loco 4430?"],
-  },
-  LOCO_LAST_INSPECTION_INSPECTOR_EMAIL: {
-    description:
-      "Read last inspection inspector email from dashboard-stored assetData (PII).",
-    requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.LastInspec.user.email"],
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    safety: "safe",
-    notes:
-      "PII: email should be redacted unless explicitly allowed by your policy.",
-    triggerPhrases: [
-      "inspector email",
-      "email of inspector",
-      "contact inspector",
-    ],
-    exampleQuestions: [
-      "What's the inspector email for loco 4430's last inspection?",
-    ],
-  },
-  FLEET_LAST_INSPECTION_MAP: {
-    description: "Get last inspection record per locomotive (map).",
-    requiresLoco: false,
+  LIST_DAILY_DUE: {
+    description: "List locomotives that are daily due for inspection",
+    requiresLoco: false,  // This is a LIST query
     requiredEntities: [],
-    recommendedCalls: [
-      {
-        function: "getAllLocomotiveLastInspectionDate",
-        args: {},
-      },
-    ],
-    returns:
-      "getAllLocomotiveLastInspectionDate -> Record<assetId,{ assetId,date,title,testCode,user }>",
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
     readTheseFields: [
-      "<assetId>.date",
-      "<assetId>.title",
-      "<assetId>.testCode",
-      "<assetId>.user",
+      "value.assetData",
+      "value.summary.locomotivesDueForDailyInspec",
     ],
     safety: "safe",
     triggerPhrases: [
-      "fleet last inspection map",
-      "all last inspections",
-      "last inspections for all",
+      "daily due",
+      "dailydue",
+      "which are daily due",
+      "locomotives daily due",
+      "daily inspection due",
+      "due for daily inspection",
+      "daily due list",
+      "which locomotives are daily due",
     ],
-    exampleQuestions: [
-      "Get last inspection for every locomotive.",
-      "Show fleet last inspection map.",
-    ],
+    exampleQuestions: ["Which locomotives are daily due?"],
   },
-  FLEET_LAST_INSPECTED_WITHIN_RANGE: {
-    description:
-      "List locos last-inspected within a date range (client-side filter).",
-    requiresLoco: false,
-    requiredEntities: ["startDate", "endDate"],
-    recommendedCalls: [
-      {
-        function: "getAllLocomotiveLastInspectionDate",
-        args: {},
-      },
-    ],
-    returns: "getAllLocomotiveLastInspectionDate -> map",
-    readTheseFields: [
-      "<assetId>.date",
-      "<assetId>.title",
-      "<assetId>.testCode",
-    ],
-    followUpQuestion: "What date range should I use? (start + end)",
-    safety: "safe",
-    notes: "Client-side filter: startDate <= date <= endDate",
-    triggerPhrases: [
-      "last inspected between",
-      "inspected within range",
-      "inspected from",
-      "inspection date range",
-    ],
-    exampleQuestions: [
-      "Which locomotives were inspected between 2025-01-01 and 2025-01-31?",
-    ],
-  },
-  FLEET_LAST_INSPECTION_BY_TEST_CODE: {
-    description: "List locos by last inspection testCode (client-side filter).",
-    requiresLoco: false,
-    requiredEntities: ["testCode"],
-    recommendedCalls: [
-      {
-        function: "getAllLocomotiveLastInspectionDate",
-        args: {},
-      },
-    ],
-    returns: "getAllLocomotiveLastInspectionDate -> map",
-    readTheseFields: [
-      "<assetId>.testCode",
-      "<assetId>.date",
-      "<assetId>.title",
-    ],
-    followUpQuestion: "Which test code?",
-    safety: "safe",
-    notes: "Client-side filter: testCode match",
-    triggerPhrases: [
-      "last inspection test code",
-      "last inspected with code",
-      "by testCode last",
-    ],
-    exampleQuestions: [
-      "Which locomotives last had test code AIR?",
-      "Show last inspections with test code XYZ.",
-    ],
-  },
-  FLEET_DUE_INSPECTION_MAP: {
-    description: "Get due inspection record per locomotive (map).",
-    requiresLoco: false,
-    requiredEntities: [],
-    recommendedCalls: [
-      {
-        function: "getAllLocomotiveDueInspectionDate",
-        args: {},
-      },
-    ],
-    returns:
-      "getAllLocomotiveDueInspectionDate -> Record<assetId,{ assetId,nextExpiryDate,title,testCode }>",
-    readTheseFields: [
-      "<assetId>.nextExpiryDate",
-      "<assetId>.title",
-      "<assetId>.testCode",
-    ],
-    safety: "safe",
-    triggerPhrases: [
-      "fleet due inspection map",
-      "all due inspections",
-      "due inspections for all",
-    ],
-    exampleQuestions: [
-      "Show due inspections for all locomotives.",
-      "Get fleet due inspection map.",
-    ],
-  },
-  FLEET_DUE_IN_NEXT_7_DAYS: {
-    description:
-      "List locos with inspections due in next 7 days (client-side filter).",
-    requiresLoco: false,
-    requiredEntities: [],
-    recommendedCalls: [
-      {
-        function: "getAllLocomotiveDueInspectionDate",
-        args: {},
-      },
-    ],
-    returns: "getAllLocomotiveDueInspectionDate -> map",
-    readTheseFields: [
-      "<assetId>.nextExpiryDate",
-      "<assetId>.title",
-      "<assetId>.testCode",
-    ],
-    safety: "safe",
-    notes: "Client-side filter: now <= nextExpiryDate <= now+7d",
-    triggerPhrases: [
-      "due in next 7 days",
-      "due within a week",
-      "upcoming due this week",
-    ],
-    exampleQuestions: ["Which locomotives are due in the next 7 days?"],
-  },
-  FLEET_DUE_IN_NEXT_30_DAYS: {
-    description:
-      "List locos with inspections due in next 30 days (client-side filter).",
-    requiresLoco: false,
-    requiredEntities: [],
-    recommendedCalls: [
-      {
-        function: "getAllLocomotiveDueInspectionDate",
-        args: {},
-      },
-    ],
-    returns: "getAllLocomotiveDueInspectionDate -> map",
-    readTheseFields: [
-      "<assetId>.nextExpiryDate",
-      "<assetId>.title",
-      "<assetId>.testCode",
-    ],
-    safety: "safe",
-    notes: "Client-side filter: now <= nextExpiryDate <= now+30d",
-    triggerPhrases: [
-      "due in next 30 days",
-      "due this month",
-      "upcoming due within 30 days",
-    ],
-    exampleQuestions: ["Which locomotives are due in the next 30 days?"],
-  },
-  FLEET_OVERDUE_INSPECTIONS: {
-    description: "List locos with overdue inspections (client-side filter).",
-    requiresLoco: false,
-    requiredEntities: [],
-    recommendedCalls: [
-      {
-        function: "getAllLocomotiveDueInspectionDate",
-        args: {},
-      },
-    ],
-    returns: "getAllLocomotiveDueInspectionDate -> map",
-    readTheseFields: [
-      "<assetId>.nextExpiryDate",
-      "<assetId>.title",
-      "<assetId>.testCode",
-    ],
-    followUpQuestion:
-      "Should I exclude locomotives with no due date (missing nextExpiryDate), or list them as 'unknown'?",
-    safety: "safe",
-    notes: "Client-side filter: nextExpiryDate < now",
-    triggerPhrases: [
-      "overdue inspections",
-      "past due",
-      "expired inspections",
-      "overdue list",
-    ],
-    exampleQuestions: ["Which locomotives are overdue for inspection?"],
-  },
-  FLEET_DUE_BY_TEST_CODE: {
-    description:
-      "List locos with due inspection for a test code (client-side filter).",
-    requiresLoco: false,
-    requiredEntities: ["testCode"],
-    recommendedCalls: [
-      {
-        function: "getAllLocomotiveDueInspectionDate",
-        args: {},
-      },
-    ],
-    returns: "getAllLocomotiveDueInspectionDate -> map",
-    readTheseFields: [
-      "<assetId>.testCode",
-      "<assetId>.nextExpiryDate",
-      "<assetId>.title",
-    ],
-    followUpQuestion: "Which test code?",
-    safety: "safe",
-    notes: "Client-side filter: testCode match",
-    triggerPhrases: [
-      "due by test code",
-      "due inspections for code",
-      "which are due for test",
-    ],
-    exampleQuestions: ["Which locomotives are due for test code XYZ?"],
-  },
-  LIST_TEST_CODES: {
-    description: "List all active test codes.",
-    requiresLoco: false,
-    requiredEntities: [],
-    recommendedCalls: [
-      {
-        function: "getAllTestCodes",
-        args: {},
-      },
-    ],
-    returns: "getAllTestCodes -> string[]",
-    readTheseFields: ["$"],
-    safety: "safe",
-    triggerPhrases: [
-      "list test codes",
-      "all test codes",
-      "available test codes",
-    ],
-    exampleQuestions: ["List all test codes.", "What test codes exist?"],
-  },
-  VALIDATE_TEST_CODE_EXISTS: {
-    description:
-      "Check if a given test code exists (client-side membership check).",
-    requiresLoco: false,
-    requiredEntities: ["testCode"],
-    recommendedCalls: [
-      {
-        function: "getAllTestCodes",
-        args: {},
-      },
-    ],
-    returns: "getAllTestCodes -> string[]",
-    readTheseFields: ["$"],
-    followUpQuestion: "Which test code are you checking?",
-    safety: "safe",
-    notes: "Client-side: check testCode in returned array",
-    triggerPhrases: [
-      "is test code valid",
-      "does test code exist",
-      "validate test code",
-    ],
-    exampleQuestions: ["Is test code ABC valid?", "Does test code XYZ exist?"],
-  },
-  LOCO_MU_ID_READ: {
-    description: "Read MU id for a locomotive (from dashboard).",
+
+  // Add these intents or update existing ones:
+
+  LOCO_NAME_LOOKUP: {
+    description: "Get the name of a specific locomotive",
     requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
+    followUpQuestion: "Which locomotive number (e.g., 4430)?",
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: ["value.assetData.<assetId>.Locomotive.name"],
+    safety: "safe",
+    triggerPhrases: [
+      "name of locomotive",
+      "locomotive name",
+      "loco name",
+      "what is the name",
+      "name for loco",
+      "name for locomotive",
     ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.muId"],
+    exampleQuestions: ["What is the name of locomotive 4430?"],
+  },
+
+  LOCO_FIND_BY_NUMBER: {
+    description: "Find a locomotive by its loco number",
+    requiresLoco: true,
+    followUpQuestion: "Which locomotive number?",
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: ["value.assetData.<assetId>"],
+    safety: "safe",
+    triggerPhrases: [
+      "find locomotive",
+      "find loco",
+      "find the locomotive",
+      "find the loco",
+      "locomotive with locono",
+      "loco with number",
+      "search for loco",
+      "search locomotive",
+    ],
+    exampleQuestions: ["Find the locomotive with locoNo 8778"],
+  },
+
+  LIST_NULL_MUID: {
+    description: "List locomotives with null muId",
+    requiresLoco: false,  // This is a LIST query, not single loco
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: ["value.assetData"],
+    safety: "safe",
+    triggerPhrases: [
+      "null muid",
+      "muid null",
+      "null mu id",
+      "no muid",
+      "missing muid",
+      "which locomotives have null",
+      "locomotives null muid",
+      "which have null muid",
+    ],
+    exampleQuestions: ["Which locomotives have a null muId?"],
+  },
+
+  LOCO_OUT_OF_USE_DATE: {
+    description: "Get when a locomotive went out of use",
+    requiresLoco: true,
     followUpQuestion: "Which locomotive (assetId or number)?",
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: [
+      "value.assetData.<assetId>.assetStates.outOfUseDate",
+      "value.assetData.<assetId>.assetStates.outOfUse",
+    ],
     safety: "safe",
-    triggerPhrases: ["mu id", "multiple unit id", "consist id", "muId"],
-    exampleQuestions: [
-      "What's the MU id for loco 4430?",
-      "MU id for assetId XYZ?",
+    triggerPhrases: [
+      "out of use date",
+      "when did go out of use",
+      "outofusedate",
+      "out of use start",
+      "when out of use",
+      "go out of use",
+      "went out of use",
     ],
+    exampleQuestions: ["When did locomotive 8778 go out of use?"],
   },
-  LOCO_MU_ID_MISSING_EXPLAIN: {
-    description: "Explain/confirm whether MU id is missing for a locomotive.",
+
+  LOCO_ENGINE_HOURS: {
+    description: "Get engine hours for a locomotive",
     requiresLoco: true,
-    requiredEntities: ["assetId"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: ["value.assetData.<assetId>.muId"],
     followUpQuestion: "Which locomotive (assetId or number)?",
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: ["value.assetData.<assetId>.assetStates.engineHour"],
     safety: "safe",
-    notes:
-      "If muId is null/empty, answer as 'not set' and optionally suggest maintenance update.",
     triggerPhrases: [
-      "mu id missing",
-      "no mu id",
-      "why mu id blank",
-      "mu not set",
+      "engine hours",
+      "enginehour",
+      "engine hour",
+      "hours for locomotive",
+      "what are the engine hours",
+      "show engine hours",
     ],
-    exampleQuestions: [
-      "Does loco 4430 have an MU id set?",
-      "Why is MU id missing for assetId XYZ?",
-    ],
+    exampleQuestions: ["What are the engine hours for locomotive 4430?"],
   },
-  MAINT_REFRESH_REBUILD_DASHBOARD: {
-    description: "Rebuild/refresh the stored dashboard data (bulk write job).",
-    requiresLoco: false,
-    requiredEntities: ["confirmWrite"],
-    recommendedCalls: [
-      {
-        function: "dashBoardDataBuildUp",
-        args: {},
-      },
-    ],
-    returns: "dashBoardDataBuildUp -> (implementation-defined)",
-    readTheseFields: ["$"],
-    followUpQuestion:
-      "This action has side effects. If you really want it, confirm with CONFIRM_WRITE.",
-    safety: "maintenance_only",
-    notes: "Blocked by default in advisor mode (write/side-effect).",
-    triggerPhrases: [
-      "rebuild dashboard",
-      "refresh dashboard data",
-      "recalculate dashboard",
-      "build up dashboard",
-    ],
-    exampleQuestions: [
-      "Rebuild the dashboard data.",
-      "Refresh the stored dashboard payload.",
-    ],
-  },
-  MAINT_UPDATE_LOCO_STATE_IN_DASHBOARD: {
-    description: "Update stored dashboard state for a locomotive (write).",
+
+  LOCO_AUTO_BLUE_CARD: {
+    description: "Check autoBlueCardInitialize setting for a locomotive",
     requiresLoco: true,
-    requiredEntities: ["locoId", "confirmWrite"],
-    recommendedCalls: [
-      {
-        function: "updateDashBoardLocoState",
-        args: {
-          locoId: "$locoId",
-        },
-      },
-    ],
-    returns: "updateDashBoardLocoState -> (implementation-defined)",
-    readTheseFields: ["$"],
-    followUpQuestion:
-      "This action has side effects. Provide locoId and confirm with CONFIRM_WRITE.",
-    safety: "maintenance_only",
-    notes: "Blocked by default in advisor mode (write/side-effect).",
+    followUpQuestion: "Which locomotive (assetId or number)?",
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: ["value.assetData.<assetId>.assetStates.autoBlueCardInitialize"],
+    safety: "safe",
     triggerPhrases: [
-      "update loco state",
-      "refresh loco state",
-      "recompute loco state",
-      "updateDashBoardLocoState",
+      "autobluecardinitiialize",
+      "auto blue card",
+      "blue card",
+      "bluecard",
+      "auto blue card initialize",
+      "blue card initialize",
+      "blue card enabled",
     ],
-    exampleQuestions: [
-      "Update the dashboard state for locoId XYZ.",
-      "Refresh loco state in dashboard for this loco.",
-    ],
+    exampleQuestions: ["Is autoBlueCardInitialize enabled for locomotive 8778?"],
   },
-  MAINT_RECALC_OOU_CREDIT_AND_SAVE: {
-    description:
-      "Recalculate and update out-of-use credit for a locomotive (write).",
-    requiresLoco: true,
-    requiredEntities: ["locoId", "confirmWrite"],
-    recommendedCalls: [
-      {
-        function: "updateLocoOutOfUseCredit",
-        args: {
-          locoId: "$locoId",
-        },
-      },
+
+  LIST_DAILY_DUE: {
+    description: "List locomotives that are daily due for inspection",
+    requiresLoco: false,  // This is a LIST query
+    requiredEntities: [],
+    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    readTheseFields: [
+      "value.assetData",
+      "value.summary.locomotivesDueForDailyInspec",
     ],
-    returns: "updateLocoOutOfUseCredit -> (implementation-defined)",
-    readTheseFields: ["$"],
-    followUpQuestion:
-      "This action has side effects. Provide locoId and confirm with CONFIRM_WRITE.",
-    safety: "maintenance_only",
-    notes: "Blocked by default in advisor mode (write/side-effect).",
+    safety: "safe",
     triggerPhrases: [
-      "recalculate oou credit",
-      "update oou credit",
-      "recompute credit",
-      "updateLocoOutOfUseCredit",
+      "daily due",
+      "dailydue",
+      "which are daily due",
+      "locomotives daily due",
+      "daily inspection due",
+      "due for daily inspection",
+      "daily due list",
+      "which locomotives are daily due",
     ],
-    exampleQuestions: [
-      "Recalculate OOU credit for locoId XYZ.",
-      "Update out-of-use credit for this loco.",
-    ],
+    exampleQuestions: ["Which locomotives are daily due?"],
   },
-  MAINT_UPDATE_LAST_AND_DUE_INSPECTION_FIELDS: {
-    description:
-      "Update stored last/due inspection fields in dashboard (write).",
-    requiresLoco: true,
-    requiredEntities: [
-      "date",
-      "unitId",
-      "title",
-      "testCode",
-      "userObject",
-      "confirmWrite",
-    ],
-    recommendedCalls: [
-      {
-        function: "updateDashBoardLocoInspection",
-        args: {
-          date: "$date",
-          unit: {
-            id: "$unitId",
-          },
-          testInfo: {
-            title: "$title",
-            testCode: "$testCode",
-            user: "$userObject",
-          },
-        },
-      },
-    ],
-    returns: "updateDashBoardLocoInspection -> (implementation-defined)",
-    readTheseFields: ["$"],
-    followUpQuestion:
-      "This action has side effects. Provide date, unitId, test title, test code, user info, and confirm with CONFIRM_WRITE.",
-    safety: "maintenance_only",
-    notes: "Blocked by default in advisor mode (write/side-effect).",
-    triggerPhrases: [
-      "update inspection in dashboard",
-      "set last inspection",
-      "update due inspection",
-      "updateDashBoardLocoInspection",
-    ],
-    exampleQuestions: [
-      "Update dashboard inspection fields for unitId XYZ with test code ABC on date 2025-01-01.",
-    ],
-  },
-  MAINT_UPDATE_MU_ID_FIELD: {
-    description: "Update stored MU id for a locomotive in dashboard (write).",
-    requiresLoco: true,
-    requiredEntities: ["locoId", "confirmWrite"],
-    recommendedCalls: [
-      {
-        function: "updateDashBoardLocoMUId",
-        args: {
-          locoId: "$locoId",
-        },
-      },
-    ],
-    returns: "updateDashBoardLocoMUId -> (implementation-defined)",
-    readTheseFields: ["$"],
-    followUpQuestion:
-      "This action has side effects. Provide locoId and confirm with CONFIRM_WRITE.",
-    safety: "maintenance_only",
-    notes: "Blocked by default in advisor mode (write/side-effect).",
-    triggerPhrases: [
-      "update mu id",
-      "refresh mu id",
-      "updateDashBoardLocoMUId",
-    ],
-    exampleQuestions: ["Update MU id in dashboard for locoId XYZ."],
-  },
-  INTERNAL_RESOLVE_MU_HEAD_HELPER: {
-    description:
-      "Internal helper to resolve MU id/head from a locomotive list (not recommended to end users).",
-    requiresLoco: true,
-    requiredEntities: ["locoId", "locos"],
-    recommendedCalls: [
-      {
-        function: "getLocoMUId",
-        args: {
-          locoId: "$locoId",
-          locos: "$locos",
-        },
-      },
-    ],
-    returns: "getLocoMUId -> string | null (internal helper)",
-    readTheseFields: ["$"],
-    followUpQuestion:
-      "This is an internal helper. Provide locoId and a locos array (usually value.assetData values).",
-    safety: "maintenance_only",
-    notes: "Function exists but is not recommendable in advisor mode.",
-    triggerPhrases: ["getLocoMUId helper", "resolve mu head", "mu head helper"],
-    exampleQuestions: ["Resolve MU head for locoId XYZ given locos list."],
-  },
+
+  // ...existing code...
 });
 
 export type IntentId = keyof typeof INTENT_CATALOG;

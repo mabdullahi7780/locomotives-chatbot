@@ -5,33 +5,24 @@
 // 2) loco number detection (3–5 digits) with heuristics
 // 3) name detection (e.g., "4430 SD70M", "903 EMD SL-1")
 // Also supports extracting MULTIPLE ids/numbers/names.
-var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
-    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
-        if (ar || !(i in from)) {
-            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
-            ar[i] = from[i];
-        }
-    }
-    return to.concat(ar || Array.prototype.slice.call(from));
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.extractLocoQuery = extractLocoQuery;
 // ---- Regexes ----
-var ASSET_ID_REGEX_GLOBAL = /\b[a-f0-9]{24}\b/gi;
+const ASSET_ID_REGEX_GLOBAL = /\b[a-f0-9]{24}\b/gi;
 // Phase 1a: keyword + number with various separators (loco 4430, loco:4430, loco no 4430, etc.)
-var LOCO_KEYWORD_NUMBER_GLOBAL = /\b(loco|locomotive|unit|engine|locos|units|engines)\b(?:\s*(?:no\.?|number)?)\s*[:#\-]?\s*(\d{3,5})\b/gi;
+const LOCO_KEYWORD_NUMBER_GLOBAL = /\b(loco|locomotive|unit|engine|locos|units|engines)\b(?:\s*(?:no\.?|number)?)\s*[:#\-]?\s*(\d{3,5})\b/gi;
 // Phase 1b: concatenated forms (loco4430, unit903)
-var LOCO_KEYWORD_NUMBER_CONCAT_GLOBAL = /\b(loco|locomotive|unit|engine)(\d{3,5})\b/gi;
+const LOCO_KEYWORD_NUMBER_CONCAT_GLOBAL = /\b(loco|locomotive|unit|engine)(\d{3,5})\b/gi;
 // Generic 3–5 digit candidates (filtered by heuristics)
-var LOCO_NUMBER_GLOBAL = /\b\d{3,5}\b/g;
+const LOCO_NUMBER_GLOBAL = /\b\d{3,5}\b/g;
 // Find numbers that could start a loco name phrase
-var LOCO_NUMBER_START_GLOBAL = /\b\d{3,5}\b/g;
+const LOCO_NUMBER_START_GLOBAL = /\b\d{3,5}\b/g;
 // No-space name detection (4430SD70M, 903EMD)
-var LOCO_NAME_NOSPACE_GLOBAL = /\b(\d{3,5})([A-Za-z][A-Za-z0-9\-\/]{2,15})\b/g;
+const LOCO_NAME_NOSPACE_GLOBAL = /\b(\d{3,5})([A-Za-z][A-Za-z0-9\-\/]{2,15})\b/g;
 // Optional: model tokens like SD70M, AC44C6M, SL-1 (only if near loco keywords)
-var MODEL_TOKEN_GLOBAL = /\b[A-Z][A-Z0-9\-\/]{2,15}\b/g;
+const MODEL_TOKEN_GLOBAL = /\b[A-Z][A-Z0-9\-\/]{2,15}\b/g;
 // Stopwords to avoid treating ordinary words as names/models
-var NAME_STOPWORDS = {
+const NAME_STOPWORDS = {
     // Time words
     DAY: true, DAYS: true, TODAY: true, TOMORROW: true, YESTERDAY: true,
     WEEK: true, WEEKS: true, MONTH: true, MONTHS: true, YEAR: true, YEARS: true,
@@ -54,10 +45,10 @@ var NAME_STOPWORDS = {
     GET: true, FIND: true, SHOW: true, LIST: true, GIVE: true, TELL: true,
 };
 function uniq(arr) {
-    var out = [];
-    var seen = {};
-    for (var i = 0; i < arr.length; i++) {
-        var v = arr[i];
+    const out = [];
+    const seen = {};
+    for (let i = 0; i < arr.length; i++) {
+        const v = arr[i];
         if (!seen[v]) {
             seen[v] = true;
             out.push(v);
@@ -65,15 +56,14 @@ function uniq(arr) {
     }
     return out;
 }
-function nearKeywords(input, start, end, window) {
-    if (window === void 0) { window = 20; }
-    var left = Math.max(0, start - window);
-    var right = Math.min(input.length, end + window);
-    var ctx = input.slice(left, right).toLowerCase();
+function nearKeywords(input, start, end, window = 20) {
+    const left = Math.max(0, start - window);
+    const right = Math.min(input.length, end + window);
+    const ctx = input.slice(left, right).toLowerCase();
     return /\b(loco|locomotive|unit|engine)\b/.test(ctx);
 }
 function isFollowedByDayish(input, end) {
-    var tail = input.slice(end, Math.min(input.length, end + 10)).toLowerCase();
+    const tail = input.slice(end, Math.min(input.length, end + 10)).toLowerCase();
     // matches: "-day", "-days", " day", " days", "day", "d " (shorthand like 368d)
     return /^(\s*-\s*days?\b|\s+days?\b|-\s*days?\b|d\b|d\s)/.test(tail);
 }
@@ -85,8 +75,8 @@ function looksLikeYear(n) {
  * These should NOT be treated as loco numbers
  */
 function looksLikeCountNumber(input, start, end) {
-    var left = input.slice(Math.max(0, start - 20), start).toLowerCase();
-    var right = input.slice(end, Math.min(input.length, end + 25)).toLowerCase();
+    const left = input.slice(Math.max(0, start - 20), start).toLowerCase();
+    const right = input.slice(end, Math.min(input.length, end + 25)).toLowerCase();
     // "top 100", "first 50", "last 20", "limit 25"
     if (/\b(top|first|last|limit)\s*$/.test(left))
         return true;
@@ -111,7 +101,7 @@ function hasDomainContext(input) {
 }
 function forEachMatch(input, regex, cb) {
     regex.lastIndex = 0;
-    var m;
+    let m;
     while ((m = regex.exec(input)) !== null) {
         cb(m);
         if (m[0] === "")
@@ -122,14 +112,14 @@ function forEachMatch(input, regex, cb) {
  * Extract ALL assetIds (24-hex) from input.
  */
 function extractAssetIds(input) {
-    var assetIds = [];
-    var matches = [];
-    forEachMatch(input, ASSET_ID_REGEX_GLOBAL, function (m) {
-        var text = m[0];
-        var start = m.index != null ? m.index : -1;
-        var end = start + text.length;
+    const assetIds = [];
+    const matches = [];
+    forEachMatch(input, ASSET_ID_REGEX_GLOBAL, (m) => {
+        const text = m[0];
+        const start = m.index != null ? m.index : -1;
+        const end = start + text.length;
         assetIds.push(text.toLowerCase());
-        matches.push({ kind: "assetId", text: text, start: start, end: end });
+        matches.push({ kind: "assetId", text, start, end });
     });
     return { assetIds: uniq(assetIds), rawMatches: matches };
 }
@@ -142,45 +132,45 @@ function extractAssetIds(input) {
  * - Accept single candidate numbers in domain context (but not years)
  */
 function extractLocoNos(input) {
-    var locoNos = [];
-    var matches = [];
-    var hasDomain = hasDomainContext(input);
+    const locoNos = [];
+    const matches = [];
+    const hasDomain = hasDomainContext(input);
     // Track numbers captured via explicit loco keywords (these are trusted, even years)
-    var trustedFromKeyword = {};
+    const trustedFromKeyword = {};
     // Phase 1a: High-precision "keyword + number" with separators
-    forEachMatch(input, LOCO_KEYWORD_NUMBER_GLOBAL, function (m) {
-        var numText = m[2];
-        var full = m[0];
-        var fullStart = m.index != null ? m.index : -1;
-        var numOffset = full.toLowerCase().lastIndexOf(numText.toLowerCase());
-        var start = fullStart + Math.max(0, numOffset);
-        var end = start + numText.length;
+    forEachMatch(input, LOCO_KEYWORD_NUMBER_GLOBAL, (m) => {
+        const numText = m[2];
+        const full = m[0];
+        const fullStart = m.index != null ? m.index : -1;
+        const numOffset = full.toLowerCase().lastIndexOf(numText.toLowerCase());
+        const start = fullStart + Math.max(0, numOffset);
+        const end = start + numText.length;
         if (locoNos.indexOf(numText) < 0) {
             locoNos.push(numText);
-            matches.push({ kind: "locoNo", text: numText, start: start, end: end });
+            matches.push({ kind: "locoNo", text: numText, start, end });
             trustedFromKeyword[numText] = true;
         }
     });
     // Phase 1b: Concatenated forms (loco4430, unit903)
-    forEachMatch(input, LOCO_KEYWORD_NUMBER_CONCAT_GLOBAL, function (m) {
-        var numText = m[2];
-        var full = m[0];
-        var fullStart = m.index != null ? m.index : -1;
-        var numOffset = full.toLowerCase().lastIndexOf(numText.toLowerCase());
-        var start = fullStart + Math.max(0, numOffset);
-        var end = start + numText.length;
+    forEachMatch(input, LOCO_KEYWORD_NUMBER_CONCAT_GLOBAL, (m) => {
+        const numText = m[2];
+        const full = m[0];
+        const fullStart = m.index != null ? m.index : -1;
+        const numOffset = full.toLowerCase().lastIndexOf(numText.toLowerCase());
+        const start = fullStart + Math.max(0, numOffset);
+        const end = start + numText.length;
         if (locoNos.indexOf(numText) < 0) {
             locoNos.push(numText);
-            matches.push({ kind: "locoNo", text: numText, start: start, end: end });
+            matches.push({ kind: "locoNo", text: numText, start, end });
             trustedFromKeyword[numText] = true;
         }
     });
     // Phase 2: Generic 3–5 digit candidates with heuristics
-    var candidates = [];
-    forEachMatch(input, LOCO_NUMBER_GLOBAL, function (m) {
-        var numText = m[0];
-        var start = m.index != null ? m.index : -1;
-        var end = start + numText.length;
+    const candidates = [];
+    forEachMatch(input, LOCO_NUMBER_GLOBAL, (m) => {
+        const numText = m[0];
+        const start = m.index != null ? m.index : -1;
+        const end = start + numText.length;
         // Skip if already captured in Phase 1
         if (locoNos.indexOf(numText) >= 0)
             return;
@@ -190,36 +180,36 @@ function extractLocoNos(input) {
         // Reject count/limit numbers ("top 100", "show 50 inspections")
         if (looksLikeCountNumber(input, start, end))
             return;
-        var num = Number(numText);
-        var near = nearKeywords(input, start, end);
+        const num = Number(numText);
+        const near = nearKeywords(input, start, end);
         // STRICTLY reject years (1900–2099) in Phase 2
         if (looksLikeYear(num))
             return;
         // Scoring heuristic
-        var score = 0;
+        let score = 0;
         if (near)
             score += 2;
         // "#4430" pattern helps
-        var before = input.slice(Math.max(0, start - 2), start);
+        const before = input.slice(Math.max(0, start - 2), start);
         if (before.indexOf("#") >= 0)
             score += 1;
         // Domain context booster (but NOT for years - already filtered above)
         if (hasDomain)
             score += 1;
-        candidates.push({ numText: numText, start: start, end: end, score: score });
+        candidates.push({ numText, start, end, score });
     });
     // If we have exactly one candidate after filtering, accept it only if score >= 1
     // This prevents accepting bare numbers like "4430" without any context
     // But "When is 4430 due next?" works because hasDomainContext gives score +1
     if (candidates.length === 1 && candidates[0].score >= 1) {
-        var c = candidates[0];
+        const c = candidates[0];
         locoNos.push(c.numText);
         matches.push({ kind: "locoNo", text: c.numText, start: c.start, end: c.end });
     }
     else {
         // Multiple candidates: require minimum score
-        for (var i = 0; i < candidates.length; i++) {
-            var c = candidates[i];
+        for (let i = 0; i < candidates.length; i++) {
+            const c = candidates[i];
             if (c.score >= 1) {
                 locoNos.push(c.numText);
                 matches.push({ kind: "locoNo", text: c.numText, start: c.start, end: c.end });
@@ -234,15 +224,15 @@ function extractLocoNos(input) {
  * Secondary (optional): model tokens like "SD70M" near loco keywords (low precision)
  */
 function extractNames(input) {
-    var names = [];
-    var matches = [];
+    const names = [];
+    const matches = [];
     // Phase 0: No-space name detection (4430SD70M → "4430 SD70M")
-    forEachMatch(input, LOCO_NAME_NOSPACE_GLOBAL, function (m) {
-        var numPart = m[1];
-        var modelPart = m[2];
-        var start = m.index != null ? m.index : -1;
-        var fullText = m[0];
-        var end = start + fullText.length;
+    forEachMatch(input, LOCO_NAME_NOSPACE_GLOBAL, (m) => {
+        const numPart = m[1];
+        const modelPart = m[2];
+        const start = m.index != null ? m.index : -1;
+        const fullText = m[0];
+        const end = start + fullText.length;
         // Validate model part is not a stopword
         if (isStopword(modelPart.toUpperCase()))
             return;
@@ -250,28 +240,28 @@ function extractNames(input) {
         if (!/[0-9\-\/]/.test(modelPart) && !(modelPart.length >= 2 && modelPart === modelPart.toUpperCase()))
             return;
         // Store normalized version in names array for consistency
-        var normalizedPhrase = numPart + " " + modelPart;
+        const normalizedPhrase = numPart + " " + modelPart;
         if (names.indexOf(normalizedPhrase) >= 0)
             return;
         names.push(normalizedPhrase);
         // rawMatch.text should match what was actually in the input for accurate debugging
-        matches.push({ kind: "name", text: fullText, start: start, end: end });
+        matches.push({ kind: "name", text: fullText, start, end });
     });
     // Phase 1: Find all numbers, then try to build name phrases from each
-    forEachMatch(input, LOCO_NUMBER_START_GLOBAL, function (m) {
-        var numText = m[0];
-        var start = m.index != null ? m.index : -1;
-        var afterNum = input.slice(start + numText.length);
-        var afterMatch = afterNum.match(/^(\s+[A-Za-z][A-Za-z0-9\-\/]*(?:\s+[A-Za-z0-9][A-Za-z0-9\-\/]*){0,2})/);
+    forEachMatch(input, LOCO_NUMBER_START_GLOBAL, (m) => {
+        const numText = m[0];
+        const start = m.index != null ? m.index : -1;
+        const afterNum = input.slice(start + numText.length);
+        const afterMatch = afterNum.match(/^(\s+[A-Za-z][A-Za-z0-9\-\/]*(?:\s+[A-Za-z0-9][A-Za-z0-9\-\/]*){0,2})/);
         if (!afterMatch)
             return;
-        var afterText = afterMatch[1];
-        var tokens = (numText + afterText).trim().split(/\s+/);
-        var second = (tokens[1] || "").toUpperCase();
+        const afterText = afterMatch[1];
+        let tokens = (numText + afterText).trim().split(/\s+/);
+        const second = (tokens[1] || "").toUpperCase();
         if (isStopword(second))
             return;
-        var separatorIndex = -1;
-        for (var i = 1; i < tokens.length; i++) {
+        let separatorIndex = -1;
+        for (let i = 1; i < tokens.length; i++) {
             if (isStopword(tokens[i].toUpperCase())) {
                 separatorIndex = i;
                 break;
@@ -280,9 +270,9 @@ function extractNames(input) {
         if (separatorIndex > 0) {
             tokens = tokens.slice(0, separatorIndex);
         }
-        var hasModelish = false;
-        for (var i = 1; i < tokens.length; i++) {
-            var t = tokens[i];
+        let hasModelish = false;
+        for (let i = 1; i < tokens.length; i++) {
+            const t = tokens[i];
             if (/[0-9\-\/]/.test(t) || (t.length >= 2 && t === t.toUpperCase())) {
                 hasModelish = true;
                 break;
@@ -295,31 +285,31 @@ function extractNames(input) {
         }
         if (tokens.length < 2)
             return;
-        var phrase = tokens.join(" ");
-        var end = start + phrase.length;
+        const phrase = tokens.join(" ");
+        const end = start + phrase.length;
         if (names.indexOf(phrase) >= 0)
             return;
         names.push(phrase);
-        matches.push({ kind: "name", text: phrase, start: start, end: end });
+        matches.push({ kind: "name", text: phrase, start, end });
     });
     // Phase 2: model tokens (only if near loco keywords, and not obvious stopwords)
-    forEachMatch(input, MODEL_TOKEN_GLOBAL, function (m) {
-        var token = m[0];
-        var start = m.index != null ? m.index : -1;
-        var end = start + token.length;
-        var upper = token.toUpperCase();
+    forEachMatch(input, MODEL_TOKEN_GLOBAL, (m) => {
+        const token = m[0];
+        const start = m.index != null ? m.index : -1;
+        const end = start + token.length;
+        const upper = token.toUpperCase();
         if (isStopword(upper))
             return;
         if (!/[0-9\-\/]/.test(token))
             return;
         if (!nearKeywords(input, start, end, 25))
             return;
-        for (var i = 0; i < names.length; i++) {
+        for (let i = 0; i < names.length; i++) {
             if (names[i].indexOf(token) >= 0)
                 return;
         }
         names.push(token);
-        matches.push({ kind: "name", text: token, start: start, end: end });
+        matches.push({ kind: "name", text: token, start, end });
     });
     return { names: uniq(names), rawMatches: matches };
 }
@@ -330,8 +320,8 @@ function computeConfidence(assetIds, locoNos, names) {
         return "medium";
     // For names only: check if any name starts with a number (more reliable)
     if (names.length > 0) {
-        var hasNumberedName = false;
-        for (var i = 0; i < names.length; i++) {
+        let hasNumberedName = false;
+        for (let i = 0; i < names.length; i++) {
             if (/^\d{3,5}\b/.test(names[i])) {
                 hasNumberedName = true;
                 break;
@@ -343,20 +333,21 @@ function computeConfidence(assetIds, locoNos, names) {
     return "low";
 }
 function extractLocoQuery(input) {
-    var _a = extractAssetIds(input), assetIds = _a.assetIds, assetMatches = _a.rawMatches;
-    var _b = extractLocoNos(input), locoNos = _b.locoNos, locoMatches = _b.rawMatches;
-    var _c = extractNames(input), names = _c.names, nameMatches = _c.rawMatches;
-    var rawMatches = __spreadArray(__spreadArray(__spreadArray([], assetMatches, true), locoMatches, true), nameMatches, true).sort(function (a, b) { return a.start - b.start; });
-    var confidence = computeConfidence(assetIds, locoNos, names);
+    const { assetIds, rawMatches: assetMatches } = extractAssetIds(input);
+    const { locoNos, rawMatches: locoMatches } = extractLocoNos(input);
+    const { names, rawMatches: nameMatches } = extractNames(input);
+    const rawMatches = [...assetMatches, ...locoMatches, ...nameMatches]
+        .sort((a, b) => a.start - b.start);
+    const confidence = computeConfidence(assetIds, locoNos, names);
     return {
-        input: input,
-        assetIds: assetIds,
-        locoNos: locoNos,
-        names: names,
+        input,
+        assetIds,
+        locoNos,
+        names,
         assetId: assetIds[0],
         locoNo: locoNos[0],
         name: names[0],
-        rawMatches: rawMatches,
-        confidence: confidence,
+        rawMatches,
+        confidence,
     };
 }

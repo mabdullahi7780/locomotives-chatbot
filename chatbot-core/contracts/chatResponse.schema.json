@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "chatResponse.schema.json",
+  "title": "ChatResponse",
+  "description": "Response contract for the locomotive dashboard chatbot",
+  "type": "object",
+  "required": ["version", "status", "executionPolicy", "replyText", "recommendedCalls"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["answer", "needs_followup", "out_of_scope", "error"],
+      "description": "Response status"
+    },
+    "executionPolicy": {
+      "type": "string",
+      "const": "suggest_only",
+      "description": "Execution policy - always suggest_only"
+    },
+    "replyText": {
+      "type": "string",
+      "description": "Human-readable reply text"
+    },
+    "recommendedCalls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["functionName", "args"],
+        "properties": {
+          "functionName": { "type": "string" },
+          "args": { "type": "object" }
+        },
+        "additionalProperties": false
+      },
+      "description": "Recommended function calls"
+    },
+    "readTheseFields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Fields to read from function result"
+    },
+    "followUpQuestion": {
+      "type": "string",
+      "description": "Follow-up question for needs_followup status"
+    },
+    "outOfScopeReason": {
+      "type": "string",
+      "description": "Reason for out_of_scope status"
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Debug/trace notes"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "needs_followup" } } },
+      "then": { 
+        "properties": { "recommendedCalls": { "maxItems": 0 } },
+        "required": ["followUpQuestion"]
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "out_of_scope" } } },
+      "then": { 
+        "properties": { "recommendedCalls": { "maxItems": 0 } },
+        "required": ["outOfScopeReason"]
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "error" } } },
+      "then": { 
+        "properties": { "recommendedCalls": { "maxItems": 0 } }
+      }
+    }
+  ]
+}
