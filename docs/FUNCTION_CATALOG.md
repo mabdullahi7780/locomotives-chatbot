@@ -114,6 +114,16 @@ These functions are safe for the advisor bot to recommend in normal operation.
 - `value.summary.nonCompliantLocomotives`
 - `value.summary.compliantLocomotives`
 - `value.assetData` :contentReference[oaicite:12]{index=12}
+- `value.assetData.<assetId>`
+- `value.assetData.<assetId>.locoNo`
+- `value.assetData.<assetId>.name`
+- `value.assetData.<assetId>.muId`
+- `value.assetData.<assetId>.assetStates.outOfUse`
+- `value.assetData.<assetId>.assetStates.engineHour`
+- `value.assetData.<assetId>.LastInspec.date`
+- `value.assetData.<assetId>.LastInspec.title`
+- `value.assetData.<assetId>.LastInspec.testCode`
+- `value.assetData.<assetId>.LastInspec.user.name`
 
 **Example call**
 ```json
@@ -333,6 +343,7 @@ These functions are safe for the advisor bot to recommend in normal operation.
 - `<assetId>.title`
 - `<assetId>.testCode`
 - `<assetId>.user`
+- `<assetId>.user.name`
 
 **Example call**
 ```json

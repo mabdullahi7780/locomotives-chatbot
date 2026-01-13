@@ -1,5 +1,23 @@
 // Simple test - no readline
-import { createRuleBasedRecommender, type FunctionCatalogJson } from "./ruleBasedRecommender";
+import * as fs from "fs";
+import * as path from "path";
+import type { FunctionCatalogJson } from "./ruleBasedRecommender";
+
+type RecommenderModule = typeof import("./ruleBasedRecommender");
+
+function loadRecommenderModule(): RecommenderModule {
+  const tsPath = path.resolve(__dirname, "ruleBasedRecommender.ts");
+
+  if (fs.existsSync(tsPath)) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(tsPath) as RecommenderModule;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require("./ruleBasedRecommender") as RecommenderModule;
+}
+
+const { createRuleBasedRecommender } = loadRecommenderModule();
 
 const functionCatalog: FunctionCatalogJson = {
   version: "1.0",

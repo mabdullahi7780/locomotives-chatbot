@@ -431,7 +431,13 @@
       "argsSchema": { "type": "object", "additionalProperties": false, "properties": {} },
       "returns": {
         "shape": "Record<assetId, { assetId: string, date: Date, title: string, testCode: string, user: object }>",
-        "readTheseFields": ["<assetId>.date", "<assetId>.title", "<assetId>.testCode", "<assetId>.user"]
+        "readTheseFields": [
+          "<assetId>.date",
+          "<assetId>.title",
+          "<assetId>.testCode",
+          "<assetId>.user",
+          "<assetId>.user.name"
+        ]
       },
       "returnSemantics": {
         "$": {
@@ -1020,13 +1026,24 @@
         "shape": "{ status: number, value: { summary: object, assetData: Record<assetId, object> } }",
         "readTheseFields": [
           "status",
+          "value.summary",
           "value.summary.noOfLocomotives",
           "value.summary.locomotiveDailyInspections",
           "value.summary.locomotivesDueForDailyInspec",
           "value.summary.locomotivesOutOfService",
           "value.summary.nonCompliantLocomotives",
           "value.summary.compliantLocomotives",
-          "value.assetData"
+          "value.assetData",
+          "value.assetData.<assetId>",
+          "value.assetData.<assetId>.locoNo",
+          "value.assetData.<assetId>.name",
+          "value.assetData.<assetId>.muId",
+          "value.assetData.<assetId>.assetStates.outOfUse",
+          "value.assetData.<assetId>.assetStates.engineHour",
+          "value.assetData.<assetId>.LastInspec.date",
+          "value.assetData.<assetId>.LastInspec.title",
+          "value.assetData.<assetId>.LastInspec.testCode",
+          "value.assetData.<assetId>.LastInspec.user.name"
         ],
         "notes": ["assetData corresponds to ReportModel.data.locomotives.", "If status is not 200, treat as error."]
       },

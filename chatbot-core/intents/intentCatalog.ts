@@ -693,36 +693,6 @@ export const INTENT_CATALOG = defineIntents({
       "Show details for assetId XYZ.",
     ],
   },
-  FIND_LOCO_BY_LOCO_NUMBER: {
-    description:
-      "Find locomotive(s) by loco number (client-side search over dashboard assetData).",
-    requiresLoco: true,
-    requiredEntities: ["locoNo"],
-    recommendedCalls: [
-      {
-        function: "getDashBoardData",
-        args: {},
-      },
-    ],
-    returns: "getDashBoardData -> dashboard payload",
-    readTheseFields: [
-      "value.assetData.<assetId>.locoNo",
-      "value.assetData.<assetId>.id",
-      "value.assetData.<assetId>.name",
-    ],
-    followUpQuestion: "Which locomotive number (e.g., 4430)?",
-    safety: "safe",
-    notes:
-      "Client-side match: locoNo equals/contains provided locoNo. If multiple, ask user to pick one.",
-    triggerPhrases: [
-      "loco number",
-      "locomotive number",
-      "unit number",
-      "engine number",
-      "locoNo",
-    ],
-    exampleQuestions: ["Find loco 4430.", "Do we have locomotive number 8772?"],
-  },
   FIND_LOCO_BY_NAME: {
     description:
       "Find locomotive(s) by name (client-side search over dashboard assetData).",
@@ -781,6 +751,7 @@ export const INTENT_CATALOG = defineIntents({
     followUpQuestion: "Which locomotive (assetId or number)?",
     requiredEntities: [],
     recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    returns: "getDashBoardData -> dashboard payload",
     readTheseFields: [
       "value.assetData.<assetId>.assetStates.outOfUseDate",
       "value.assetData.<assetId>.assetStates.outOfUse",
@@ -803,6 +774,7 @@ export const INTENT_CATALOG = defineIntents({
     followUpQuestion: "Which locomotive (assetId or number)?",
     requiredEntities: [],
     recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    returns: "getDashBoardData -> dashboard payload",
     readTheseFields: ["value.assetData.<assetId>.assetStates.engineHour"],
     safety: "safe",
     triggerPhrases: [
@@ -821,6 +793,7 @@ export const INTENT_CATALOG = defineIntents({
     followUpQuestion: "Which locomotive (assetId or number)?",
     requiredEntities: [],
     recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    returns: "getDashBoardData -> dashboard payload",
     readTheseFields: ["value.assetData.<assetId>.assetStates.autoBlueCardInitialize"],
     safety: "safe",
     triggerPhrases: [
@@ -836,9 +809,10 @@ export const INTENT_CATALOG = defineIntents({
   },
   LIST_DAILY_DUE: {
     description: "List locomotives that are daily due for inspection",
-    requiresLoco: false,  // This is a LIST query
+    requiresLoco: false,
     requiredEntities: [],
     recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    returns: "getDashBoardData -> dashboard payload",
     readTheseFields: [
       "value.assetData",
       "value.summary.locomotivesDueForDailyInspec",
@@ -865,6 +839,7 @@ export const INTENT_CATALOG = defineIntents({
     followUpQuestion: "Which locomotive number (e.g., 4430)?",
     requiredEntities: [],
     recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    returns: "getDashBoardData -> dashboard payload",
     readTheseFields: ["value.assetData.<assetId>.Locomotive.name"],
     safety: "safe",
     triggerPhrases: [
@@ -884,6 +859,7 @@ export const INTENT_CATALOG = defineIntents({
     followUpQuestion: "Which locomotive number?",
     requiredEntities: [],
     recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    returns: "getDashBoardData -> dashboard payload",
     readTheseFields: ["value.assetData.<assetId>"],
     safety: "safe",
     triggerPhrases: [
@@ -898,12 +874,12 @@ export const INTENT_CATALOG = defineIntents({
     ],
     exampleQuestions: ["Find the locomotive with locoNo 8778"],
   },
-
   LIST_NULL_MUID: {
     description: "List locomotives with null muId",
-    requiresLoco: false,  // This is a LIST query, not single loco
+    requiresLoco: false,
     requiredEntities: [],
     recommendedCalls: [{ function: "getDashBoardData", args: {} }],
+    returns: "getDashBoardData -> dashboard payload",
     readTheseFields: ["value.assetData"],
     safety: "safe",
     triggerPhrases: [
@@ -918,93 +894,6 @@ export const INTENT_CATALOG = defineIntents({
     ],
     exampleQuestions: ["Which locomotives have a null muId?"],
   },
-
-  LOCO_OUT_OF_USE_DATE: {
-    description: "Get when a locomotive went out of use",
-    requiresLoco: true,
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    requiredEntities: [],
-    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
-    readTheseFields: [
-      "value.assetData.<assetId>.assetStates.outOfUseDate",
-      "value.assetData.<assetId>.assetStates.outOfUse",
-    ],
-    safety: "safe",
-    triggerPhrases: [
-      "out of use date",
-      "when did go out of use",
-      "outofusedate",
-      "out of use start",
-      "when out of use",
-      "go out of use",
-      "went out of use",
-    ],
-    exampleQuestions: ["When did locomotive 8778 go out of use?"],
-  },
-
-  LOCO_ENGINE_HOURS: {
-    description: "Get engine hours for a locomotive",
-    requiresLoco: true,
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    requiredEntities: [],
-    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
-    readTheseFields: ["value.assetData.<assetId>.assetStates.engineHour"],
-    safety: "safe",
-    triggerPhrases: [
-      "engine hours",
-      "enginehour",
-      "engine hour",
-      "hours for locomotive",
-      "what are the engine hours",
-      "show engine hours",
-    ],
-    exampleQuestions: ["What are the engine hours for locomotive 4430?"],
-  },
-
-  LOCO_AUTO_BLUE_CARD: {
-    description: "Check autoBlueCardInitialize setting for a locomotive",
-    requiresLoco: true,
-    followUpQuestion: "Which locomotive (assetId or number)?",
-    requiredEntities: [],
-    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
-    readTheseFields: ["value.assetData.<assetId>.assetStates.autoBlueCardInitialize"],
-    safety: "safe",
-    triggerPhrases: [
-      "autobluecardinitiialize",
-      "auto blue card",
-      "blue card",
-      "bluecard",
-      "auto blue card initialize",
-      "blue card initialize",
-      "blue card enabled",
-    ],
-    exampleQuestions: ["Is autoBlueCardInitialize enabled for locomotive 8778?"],
-  },
-
-  LIST_DAILY_DUE: {
-    description: "List locomotives that are daily due for inspection",
-    requiresLoco: false,  // This is a LIST query
-    requiredEntities: [],
-    recommendedCalls: [{ function: "getDashBoardData", args: {} }],
-    readTheseFields: [
-      "value.assetData",
-      "value.summary.locomotivesDueForDailyInspec",
-    ],
-    safety: "safe",
-    triggerPhrases: [
-      "daily due",
-      "dailydue",
-      "which are daily due",
-      "locomotives daily due",
-      "daily inspection due",
-      "due for daily inspection",
-      "daily due list",
-      "which locomotives are daily due",
-    ],
-    exampleQuestions: ["Which locomotives are daily due?"],
-  },
-
-  // ...existing code...
 });
 
 export type IntentId = keyof typeof INTENT_CATALOG;
@@ -1019,7 +908,7 @@ export const SAFE_INTENTS: IntentId[] = ALL_INTENTS.filter(
 );
 
 export const MAINTENANCE_INTENTS: IntentId[] = ALL_INTENTS.filter(
-  (id) => INTENT_CATALOG[id].safety === "maintenance_only"
+  (id) => (INTENT_CATALOG[id].safety as SafetyMode) === "maintenance_only"
 );
 
 /**

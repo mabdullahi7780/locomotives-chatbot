@@ -2,16 +2,17 @@
  * ruleBasedRecommender.ts
  *
  * Deterministic (non-LLM) recommender that:
- * - Routes a user question -> best Intent (BM25-ish lexical rules)
+ * - Routes a user question -> best Adapter Intent (BM25-ish lexical rules)
  * - Extracts locomotive identifiers (assetId / locoNo / name)
+ * - Maps adapter intent -> service-specific function via adapter layer
  * - Resolves locoNo/name -> assetId using a provided dashboard snapshot (optional)
  *
- * ✅ AssetId mapping rule:
- * - ONLY when the chosen intent truly needs a real assetId to EXECUTE a non-dashboard function:
- *    1) Try to map locoNo/name -> assetId from the provided snapshot (if any)
- *    2) If mapping fails (not found OR ambiguous OR snapshot missing), STOP and say:
- *       "I can't map that loco to a valid assetId. Re-check identifier, provide assetId, or refresh dashboard data."
- * - No "fresh/not fresh" assumptions, no "even after refresh" claims.
+ * ADAPTER-AWARE FLOW:
+ * 1. User input → Extract entities (assetId, locoNo, name)
+ * 2. BM25 match against ADAPTER intents (canonicalExamples, tags, description)
+ * 3. Selected adapter intent → adapter.resolveCall() → service function
+ * 4. Guards validate against FUNCTION_CATALOG.json
+ * 5. User sees response mentioning actual service function names
  *
  * SAFETY:
  * - Suggest-only: NEVER execute anything, never claim execution.
@@ -22,7 +23,6 @@
  */
 
 import { extractLocoQuery, type LocoQuery } from "./../nlp/extractLocoQuery";
-import { INTENT_CATALOG as DEFAULT_INTENT_CATALOG } from "./../intents/intentCatalog";
 import {
   type ChatStatus,
   type ExecutionPolicy,
@@ -30,40 +30,15 @@ import {
   type ChatResponse,
 } from "./../contracts";
 
-/** ---- Intent types ---- */
+// Import adapter types and default adapter
+import type {
+  IDashboardAdapter,
+  AdapterIntentDefinition,
+  AdapterMethod,
+} from "./../adapters/adapterTypes";
+import { getLiteDashboardAdapter } from "./../adapters/liteDashboardAdapter";
 
-export type IntentId = string;
-
-export interface IntentCallSpec {
-  function: string;
-  args?: Record<string, unknown>;
-}
-
-export interface IntentSpec {
-  description?: string;
-  triggerPhrases?: string[];
-  requiresLoco?: boolean;
-  followUpQuestion?: string;
-  recommendedCalls?: IntentCallSpec[];
-  readTheseFields?: string[];
-  safety?: "safe" | "read_only" | "maintenance_only";
-  notes?: string;
-  requiredEntities?: string[];
-  returns?: string;
-  exampleQuestions?: string[];
-}
-
-export type IntentCatalog = Record<IntentId, IntentSpec>;
-
-/** ---- Contract types (mirrors chatResponse.schema.json) ---- */
-
-// REMOVE these type definitions (now imported from contracts):
-// - ChatStatus
-// - ExecutionPolicy
-// - CallSpec
-// - ChatResponse
-
-// Re-export for backward compatibility
+/** ---- Re-export contract types for backward compatibility ---- */
 export type { ChatStatus, ExecutionPolicy, CallSpec, ChatResponse };
 
 /** ---- Function catalog types ---- */
@@ -103,8 +78,11 @@ export interface RecommenderContext {
 
 export interface RuleBasedRecommenderConfig {
   responseVersion?: string;
-  intentCatalog?: IntentCatalog;
+  /** The adapter to use for intent matching and service call resolution */
+  adapter?: IDashboardAdapter;
+  /** Function catalog for validation (guards) */
   functionCatalog: FunctionCatalogJson;
+  /** Custom assetId resolver (optional) */
   resolveAssetId?: (input: {
     extraction: LocoQuery;
     snapshot: unknown;
@@ -123,7 +101,7 @@ const DEFAULT_RESPONSE_VERSION = "1.0";
 const MIN_INTENT_SCORE = 1.8;
 const MIN_SCORE_MARGIN = 0.6;
 
-/** Fleet bias: if query is clearly fleet-level, prefer requiresLoco:false intents */
+/** Fleet bias: if query is clearly fleet-level, prefer requiresLocoRef:false intents */
 const FLEET_INTENT_MIN_SCORE = 1.2;
 
 const BASE_SENSITIVE_KEYWORDS = [
@@ -145,25 +123,18 @@ const STOPWORDS = new Set([
   "how", "when", "where", "does", "do", "did", "has", "have", "had",
 ]);
 
-const PLACEHOLDER_STRINGS = new Set(["$assetid", "<assetid>", "$locoid"]);
-
-function isPlaceholderValue(v: unknown): boolean {
-  if (typeof v !== "string") return false;
-  return PLACEHOLDER_STRINGS.has(v.trim().toLowerCase());
-}
-
 /** ---- Search index types (BM25-ish) ---- */
 
-type IntentDoc = {
-  intentId: IntentId;
-  spec: IntentSpec;
+type AdapterIntentDoc = {
+  intentId: string;
+  intent: AdapterIntentDefinition;
   tf: Map<string, number>;
   docLen: number;
   triggerPhrasesNorm: string[];
 };
 
-type IntentSearchIndex = {
-  docs: IntentDoc[];
+type AdapterIntentSearchIndex = {
+  docs: AdapterIntentDoc[];
   idf: Map<string, number>;
   avgDocLen: number;
 };
@@ -176,15 +147,16 @@ type ResolveResult = { assetId: string } | { ambiguous: true; candidates: AssetC
 /** ---- Main Recommender Class ---- */
 
 export class RuleBasedRecommender {
-  private readonly intentCatalog: IntentCatalog;
+  private readonly adapter: IDashboardAdapter;
   private readonly functionIndex: FunctionIndex;
   private readonly responseVersion: string;
   private readonly resolveAssetIdOverride?: RuleBasedRecommenderConfig["resolveAssetId"];
   private readonly sensitiveKeywords: string[];
-  private readonly searchIndex: IntentSearchIndex;
+  private readonly searchIndex: AdapterIntentSearchIndex;
 
   constructor(config: RuleBasedRecommenderConfig) {
-    this.intentCatalog = config.intentCatalog ?? (DEFAULT_INTENT_CATALOG as unknown as IntentCatalog);
+    // Use provided adapter or default to LiteDashboardAdapter
+    this.adapter = config.adapter ?? getLiteDashboardAdapter();
     this.functionIndex = indexFunctionCatalog(config.functionCatalog);
     this.responseVersion = config.responseVersion ?? DEFAULT_RESPONSE_VERSION;
     this.resolveAssetIdOverride = config.resolveAssetId;
@@ -192,8 +164,8 @@ export class RuleBasedRecommender {
     const extras = (config.extraSensitiveKeywords ?? []).map((s) => s.toLowerCase());
     this.sensitiveKeywords = [...BASE_SENSITIVE_KEYWORDS, ...extras].map((s) => s.toLowerCase());
 
-    // Build BM25-ish intent index once
-    this.searchIndex = buildIntentSearchIndex(this.intentCatalog, this.functionIndex);
+    // Build BM25-ish index from ADAPTER intents
+    this.searchIndex = buildAdapterIntentSearchIndex(this.adapter.getIntents());
   }
 
   recommend(userTextRaw: string, ctx: RecommenderContext = {}): ChatResponse {
@@ -223,29 +195,31 @@ export class RuleBasedRecommender {
     // 3) Extract entities (and patch extraction for locoNo patterns + bare numbers)
     const extractionBase = extractLocoQuery(userTextRaw);
     const extraction = patchExtraction(extractionBase, userTextRaw);
-    const extraEntities = extractExtraEntities(userTextRaw);
 
     // 4) Short-form overrides (digits-only / assetId-only)
-    const overrideIntentId = shortFormIntentOverride(userText, extraction, this.intentCatalog);
-    let intentId: IntentId | null = overrideIntentId;
+    const overrideIntentId = shortFormIntentOverride(userText, extraction, this.adapter.getIntents());
+    let matchedIntentId: string | null = overrideIntentId;
 
-    // 5) Rank intents using BM25-ish scoring (with fleet bias)
-    let best: { intentId: IntentId; score: number; debugWhy?: string[] } | undefined;
-    let second: { intentId: IntentId; score: number; debugWhy?: string[] } | undefined;
+    // 5) Rank adapter intents using BM25-ish scoring (with fleet bias)
+    let best: { intentId: string; score: number; debugWhy?: string[] } | undefined;
+    let second: { intentId: string; score: number; debugWhy?: string[] } | undefined;
 
-    if (!intentId) {
+    if (!matchedIntentId) {
       const fleetQuery = looksLikeFleetQuery(userTextRaw, extraction);
-      const ranked = rankIntentsBM25(userText, this.searchIndex, {
-        allowMaintenanceIntents: !!ctx.allowMaintenanceIntents,
+      const ranked = rankAdapterIntentsBM25(userText, this.searchIndex, {
         fleetQuery,
       });
 
       best = ranked[0];
       second = ranked[1];
 
-      // Fleet preference: if fleet-like and user did NOT specify a loco, prefer requiresLoco:false intents
+      // Fleet preference: if fleet-like and user did NOT specify a loco, prefer requiresLocoRef:false intents
       if (fleetQuery && !hasAnyLocoRef(extraction)) {
-        const fleetPick = ranked.find((r) => (this.intentCatalog[r.intentId]?.requiresLoco ?? false) === false);
+        const intents = this.adapter.getIntents();
+        const fleetPick = ranked.find((r) => {
+          const intent = intents.find((i) => i.id === r.intentId);
+          return intent && !intent.requiresLocoRef;
+        });
         if (fleetPick && fleetPick.score >= FLEET_INTENT_MIN_SCORE) {
           best = fleetPick;
           second = ranked.find((r) => r.intentId !== fleetPick.intentId);
@@ -263,140 +237,132 @@ export class RuleBasedRecommender {
         );
       }
 
-      intentId = best.intentId;
+      matchedIntentId = best.intentId;
     }
 
-    const intent = this.intentCatalog[intentId] as IntentSpec | undefined;
-    if (!intent) {
-      return this.error("Internal error: matched an intent that does not exist in the catalog.", [`intentId=${intentId}`]);
+    // 6) Find the matched adapter intent
+    const adapterIntent = this.adapter.getIntents().find((i) => i.id === matchedIntentId);
+    if (!adapterIntent) {
+      return this.error("Internal error: matched an intent that does not exist in the adapter.", [`intentId=${matchedIntentId}`]);
     }
 
-    // 6) Block maintenance intents unless explicitly allowed
-    if (intent.safety === "maintenance_only" && !ctx.allowMaintenanceIntents) {
-      return this.outOfScope(
-        "That action is maintenance-only (side effects) and is blocked in advisor mode.",
-        ["Try asking for the current state/credit/inspection info instead (read-only)."],
+    // 7) Check if intent requires locomotive reference
+    if (adapterIntent.requiresLocoRef && !hasAnyLocoRef(extraction)) {
+      return this.needsFollowup(
+        adapterIntent.followUpQuestion ?? `To ${adapterIntent.description.toLowerCase()}, I need a locomotive number or ID.`,
+        [`Adapter intent "${adapterIntent.id}" requires loco reference but none found in query`],
       );
     }
 
-    // 7) Determine whether this intent ACTUALLY needs assetId to EXECUTE calls
-    const needsAssetIdForCalls = intentNeedsAssetIdToExecuteCalls(intent, this.functionIndex);
-
-    // 8) Resolve assetId if possible (only used when helpful; never guessed)
+    // 8) Resolve assetId if possible
     const resolution = this.resolveAssetIdDetailed(extraction, ctx);
     const resolvedAssetId = resolution && "assetId" in resolution ? resolution.assetId : null;
     const effectiveAssetId = resolvedAssetId ?? extraction.assetId ?? null;
 
-    /**
-     * ✅ SPECIAL FLOW: AssetId mapping gate
-     * If the intent needs a real assetId to EXECUTE calls, and the user gave locoNo/name but we can't map it:
-     * - STOP and ask them to re-check / provide assetId / refresh dashboard data.
-     * - No "fresh/not fresh" claims.
-     * - No recommendedCalls because status is needs_followup (schema rule).
-     */
-    if (
-      needsAssetIdForCalls &&
-      !effectiveAssetId &&
-      !extraction.assetId &&
-      hasLocoNoOrName(extraction)
-    ) {
-      const entered = extraction.locoNo ? `loco number "${extraction.locoNo}"` : `name "${extraction.name}"`;
+    // 9) Use adapter to resolve the call to service-specific function
+    // ✅ Pass BOTH locoNo AND assetId so adapter can generate proper reply text
+    const resolvedCall = this.adapter.resolveCall(adapterIntent.adapterMethod, {
+      assetId: effectiveAssetId ?? undefined,
+      locoNo: extraction.locoNo ?? undefined,
+    });
 
-      // Ambiguous match: list candidates (refuse to guess)
-      if (resolution && "ambiguous" in resolution) {
-        const cands = resolution.candidates
-          .slice(0, 8)
-          .map((c) => `${c.locoNo ?? "?"} (${c.name ?? "?"}) [assetId=${c.assetId}]`)
-          .join("; ");
+    // 10) Handle unresolved calls (missing required assetId)
+    if (!resolvedCall) {
+      // If we have locoNo/name but couldn't resolve to assetId, and the adapter needs it
+      if (hasLocoNoOrName(extraction) && !effectiveAssetId) {
+        const entered = extraction.locoNo ? `loco number "${extraction.locoNo}"` : `name "${extraction.name}"`;
 
+        // Ambiguous match: list candidates
+        if (resolution && "ambiguous" in resolution) {
+          const cands = resolution.candidates
+            .slice(0, 8)
+            .map((c) => `${c.locoNo ?? "?"} (${c.name ?? "?"}) [assetId=${c.assetId}]`)
+            .join("; ");
+
+          return this.needsFollowup(
+            `I found multiple locomotives matching ${entered}. ` +
+              `Please provide the correct assetId, or re-check the identifier. ` +
+              `If your dashboard data might be stale, refresh it and try again. ` +
+              `Candidates: ${cands}`,
+            ["Ambiguous loco resolution; refusing to guess."],
+          );
+        }
+
+        // Not found OR snapshot missing
+        const mappingContext = ctx.dashboardSnapshot ? "in the current dashboard data" : "with the data I currently have";
         return this.needsFollowup(
-          `I found multiple locomotives matching ${entered}. ` +
-            `Please provide the correct assetId, or re-check the identifier. ` +
-            `If your dashboard data might be stale, refresh it (run getDashBoardData) and try again. ` +
-            `Candidates: ${cands}`,
-          ["Ambiguous loco resolution; refusing to guess."],
+          `I can't map ${entered} to a valid assetId ${mappingContext}. ` +
+            `Please re-check the locomotive number/name, provide the assetId directly, ` +
+            `or refresh the dashboard data and try again.`,
+          ["AssetId required to execute this intent; locoNo/name did not resolve to a unique assetId."],
         );
       }
 
-      // Not found OR snapshot missing (either way: can't map)
-      const mappingContext = ctx.dashboardSnapshot ? "in the current dashboard data" : "with the data I currently have";
+      // Generic failure
       return this.needsFollowup(
-        `I can't map ${entered} to a valid assetId ${mappingContext}. ` +
-          `Please re-check the locomotive number/name, provide the assetId directly, ` +
-          `or refresh the dashboard data (run getDashBoardData) and try again.`,
-        ["AssetId required to execute this intent; locoNo/name did not resolve to a unique assetId."],
+        adapterIntent.followUpQuestion ?? "I need a locomotive assetId to complete this request.",
+        [`Adapter method "${adapterIntent.adapterMethod}" could not be resolved - missing required parameters`],
       );
     }
 
-    // 9) Enforce required entities safely (now that the mapping gate above is handled)
-    const missing = firstMissingRequiredEntity(intent, {
-      extraction,
-      effectiveAssetId,
-      thresholdHours: extraEntities.thresholdHours,
-      needsAssetIdForCalls,
-    });
-
-    if (missing) {
-      // For intents that use getDashBoardData and just need a loco reference (not resolved assetId),
-      // we can proceed with the locoNo/name and let the user find it in the result
-      if (missing === "assetId" && !needsAssetIdForCalls && hasLocoNoOrName(extraction)) {
-        // Don't block - the intent can proceed, user will search the result
-      } else {
-        // Otherwise: ask the intent's own follow-up question
-        return this.needsFollowup(
-          intent.followUpQuestion ?? `I'm missing "${missing}". Can you provide it?`,
-          [`MissingRequiredEntity=${missing}`],
-        );
-      }
-    }
-
-    // 10) Build calls (catalog-enforced)
-    const calls = this.buildCalls(intent, effectiveAssetId);
-
-    // 11) If zero safe calls, do NOT invent a fallback
-    if (calls.length === 0) {
+    // 11) Validate the resolved function against the catalog
+    const fnSpec = this.functionIndex[resolvedCall.functionName];
+    if (!fnSpec) {
       return this.outOfScope(
-        "I can't recommend a safe function call for that intent with the current function catalog.",
-        [`Intent=${intentId}`, "Deny-by-default: no safe calls after catalog filtering."],
+        `The function "${resolvedCall.functionName}" is not available in the current function catalog.`,
+        [`Function not found in FUNCTION_CATALOG.json`],
       );
     }
 
-    // 12) Sanitize readTheseFields
-    const sanitizedFields = sanitizeReadTheseFields(intent.readTheseFields ?? []);
+    if (!fnSpec.recommendable) {
+      return this.outOfScope(
+        `The function "${resolvedCall.functionName}" is not recommendable.`,
+        [`Function has recommendable=false in catalog`],
+      );
+    }
 
-    // 13) Build reply text
-    const replyText = buildReplyText({
-      intent,
-      extraction,
-      effectiveAssetId,
-      recommendedCalls: calls,
-      readFields: sanitizedFields,
-    });
+    if (!fnSpec.readOnly) {
+      return this.outOfScope(
+        `The function "${resolvedCall.functionName}" has side effects and is blocked in safe mode.`,
+        [`Function has readOnly=false in catalog`],
+      );
+    }
 
+    // 12) Build the final CallSpec
+    const callSpec: CallSpec = {
+      functionName: resolvedCall.functionName,
+      args: resolvedCall.args,
+    };
+
+    // 13) Sanitize readTheseFields - should already have <assetId> replaced by adapter
+    const sanitizedFields = sanitizeReadTheseFields(resolvedCall.readTheseFields ?? []);
+
+    // 14) Build notes
     const notes: string[] = [];
-    if (best?.debugWhy?.length) notes.push(...best.debugWhy);
-    if (intent.notes) notes.push(intent.notes);
-
-    // Helpful note when we are using dashboard data and assetId isn't resolved
-    if (
-      calls.some((c) => c.functionName === "getDashBoardData") &&
-      !effectiveAssetId &&
-      hasLocoNoOrName(extraction)
-    ) {
-      const locoRef = extraction.locoNo ?? extraction.name;
-      notes.push(
-        `AssetId was not resolved in-chat. In the getDashBoardData() result, search value.assetData entries by locoNo="${locoRef}" to find the matching <assetId> key.`,
-      );
+    
+    // ✅ Add locoNo → assetId mapping info first (most important for users)
+    if (extraction.locoNo && effectiveAssetId) {
+      notes.push(`Locomotive ${extraction.locoNo} → assetId: ${effectiveAssetId}`);
+    } else if (effectiveAssetId) {
+      notes.push(`Using assetId: ${effectiveAssetId}`);
     }
+    
+    // Add technical notes
+    notes.push(`Adapter Intent: ${adapterIntent.id}`);
+    notes.push(`Adapter Method: ${adapterIntent.adapterMethod}`);
+    notes.push(`Service: ${this.adapter.getServiceName()}`);
+    
+    if (best?.debugWhy?.length) notes.push(...best.debugWhy);
 
+    // ✅ Use the adapter's reply text which includes the mapping and field info
     return {
       version: this.responseVersion,
       status: "answer",
       executionPolicy: "suggest_only",
-      replyText,
-      recommendedCalls: calls,
+      replyText: resolvedCall.replyText,
+      recommendedCalls: [callSpec],
       ...(sanitizedFields.length ? { readTheseFields: sanitizedFields } : {}),
-      ...(notes.length ? { notes } : {}),
+      notes,
     };
   }
 
@@ -433,25 +399,6 @@ export class RuleBasedRecommender {
       executionPolicy: "suggest_only",
       replyText: message,
       recommendedCalls: [],
-      ...(notes?.length ? { notes } : {}),
-    };
-  }
-
-  private answerWithSafeStarter(
-    replyText: string,
-    calls: CallSpec[],
-    readFields?: string[],
-    notes?: string[],
-  ): ChatResponse {
-    const safeCalls = this.filterCallsAgainstCatalog(calls);
-    const safeReadFields = sanitizeReadTheseFields(readFields ?? []);
-    return {
-      version: this.responseVersion,
-      status: "answer",
-      executionPolicy: "suggest_only",
-      replyText,
-      recommendedCalls: safeCalls,
-      ...(safeReadFields.length ? { readTheseFields: safeReadFields } : {}),
       ...(notes?.length ? { notes } : {}),
     };
   }
@@ -546,244 +493,28 @@ export class RuleBasedRecommender {
     if (matches.length > 1) return { ambiguous: true, candidates: matches };
     return null;
   }
-
-  /** ---- Call building + catalog enforcement ---- */
-
-  private buildCalls(intent: IntentSpec, assetId: string | null): CallSpec[] {
-    const calls: CallSpec[] = (intent.recommendedCalls ?? []).map((c) => {
-      const rawArgs = { ...(c.args ?? {}) };
-
-      if (assetId) {
-        for (const [k, v] of Object.entries(rawArgs)) {
-          if (typeof v === "string" && isPlaceholderValue(v)) {
-            rawArgs[k] = assetId;
-          }
-        }
-      }
-
-      return { functionName: c.function, args: rawArgs };
-    });
-
-    return this.filterCallsAgainstCatalog(dedupeCalls(calls));
-  }
-
-  private filterCallsAgainstCatalog(calls: CallSpec[]): CallSpec[] {
-    const safe: CallSpec[] = [];
-    for (const call of calls) {
-      const spec = this.functionIndex[call.functionName];
-      if (!spec) continue;
-      if (!spec.recommendable) continue;
-      if (!argsPassSchema(call.args, spec.argsSchema)) continue;
-      safe.push(call);
-    }
-    return safe;
-  }
 }
 
-/** ---- Required entity enforcement ---- */
+/** ---- Build BM25 index from ADAPTER intents ---- */
 
-function firstMissingRequiredEntity(
-  intent: IntentSpec,
-  input: {
-    extraction: LocoQuery;
-    effectiveAssetId: string | null;
-    thresholdHours?: number | null;
-    needsAssetIdForCalls: boolean;
-  },
-): string | null {
-  const req = intent.requiredEntities ?? [];
-
-  // If the intent references "assetId" but does NOT need it to execute calls,
-  // treat this as "user must specify SOME loco reference" (assetId OR locoNo OR name).
-  if ((intent.requiresLoco || req.includes("assetId")) && !input.needsAssetIdForCalls) {
-    if (!hasAnyLocoRef(input.extraction) && !input.effectiveAssetId) return "assetId";
-    // If user provided locoNo/name, that's sufficient for getDashBoardData-based intents
-    return null;
-  }
-
-  // If we need assetId to execute calls, then assetId is truly required.
-  if (input.needsAssetIdForCalls) {
-    if (!input.effectiveAssetId) {
-      // allow locoNo/name to exist (3-step flow handles resolution)
-      if (!hasLocoNoOrName(input.extraction) && !input.extraction.assetId) return "assetId";
-      // We have locoNo/name but no resolved assetId - return "assetId" to trigger 3-step flow
-      return "assetId";
-    }
-  }
-
-  // Other entities
-  for (const ent of req) {
-    if (ent === "assetId") continue; // handled above
-    if (ent === "locoNo" && !input.extraction.locoNo) return "locoNo";
-    if (ent === "name" && !input.extraction.name) return "name";
-    if (ent === "thresholdHours") {
-      if (typeof input.thresholdHours !== "number" || !Number.isFinite(input.thresholdHours)) return "thresholdHours";
-    }
-  }
-
-  // Back-compat: requiresLoco means require SOME loco ref
-  if (intent.requiresLoco && !hasAnyLocoRef(input.extraction) && !input.effectiveAssetId) return "assetId";
-
-  return null;
-}
-
-/** ---- Extra entity extraction ---- */
-
-function extractExtraEntities(userTextRaw: string): { thresholdHours?: number } {
-  const t = userTextRaw;
-
-  const m1 = t.match(/\b(over|above|exceed|exceeds|greater than|more than)\s*([\d,]+)\s*(k)?\b/i);
-  if (m1) {
-    const n = parseNumberMaybeK(m1[2], !!m1[3]);
-    if (Number.isFinite(n)) return { thresholdHours: n };
-  }
-
-  const m2 = t.match(/\b([\d,]+)\s*(k)?\s*(engine\s*hours|hours)\b/i);
-  if (m2) {
-    const n = parseNumberMaybeK(m2[1], !!m2[2]);
-    if (Number.isFinite(n)) return { thresholdHours: n };
-  }
-
-  return {};
-}
-
-function parseNumberMaybeK(raw: string, hasK: boolean): number {
-  const cleaned = raw.replace(/,/g, "");
-  const base = Number(cleaned);
-  if (!Number.isFinite(base)) return NaN;
-  return hasK ? base * 1000 : base;
-}
-
-/** ---- Extraction patching ---- */
-
-function patchExtraction(extraction: LocoQuery, userTextRaw: string): LocoQuery {
-  let locoNo = extraction.locoNo;
-  let assetId = extraction.assetId;
-  const name = extraction.name;
-
-  // A) Accept "locoNo 8778" pattern (extractor might miss this)
-  if (!locoNo) {
-    const m = userTextRaw.match(/\b(loco\s*no|locono|unit\s*no|unitno|engine\s*no|engineno|locomotive)\s*[:#\-]?\s*(\d{3,5})\b/i);
-    if (m) locoNo = m[2];
-  }
-
-  // B) Digits-only input => treat as locoNo
-  if (!locoNo && /^\s*\d{3,5}\s*$/.test(userTextRaw)) {
-    locoNo = userTextRaw.trim();
-  }
-
-  // C) AssetId-only input (24-hex)
-  if (!assetId && /^\s*[a-f0-9]{24}\s*$/i.test(userTextRaw)) {
-    assetId = userTextRaw.trim().toLowerCase();
-  }
-
-  return {
-    ...extraction,
-    assetId,
-    locoNo,
-    name,
-    assetIds: assetId ? uniqStrings([...(extraction.assetIds ?? []), assetId]) : extraction.assetIds,
-    locoNos: locoNo ? uniqStrings([...(extraction.locoNos ?? []), locoNo]) : extraction.locoNos,
-  };
-}
-
-function uniqStrings(arr: string[]): string[] {
-  return [...new Set(arr)];
-}
-
-/** ---- Short-form routing overrides ---- */
-
-function shortFormIntentOverride(userTextNormalized: string, extraction: LocoQuery, catalog: IntentCatalog): IntentId | null {
-  // If user just typed a loco number, default to FIND_LOCO_BY_LOCO_NUMBER if available
-  if (/^\d{3,5}$/.test(userTextNormalized) && extraction.locoNo && catalog["FIND_LOCO_BY_LOCO_NUMBER"]) {
-    return "FIND_LOCO_BY_LOCO_NUMBER";
-  }
-
-  // If user just typed an assetId, default to FIND_LOCO_BY_ASSET_ID if available
-  if (/^[a-f0-9]{24}$/.test(userTextNormalized) && extraction.assetId && catalog["FIND_LOCO_BY_ASSET_ID"]) {
-    return "FIND_LOCO_BY_ASSET_ID";
-  }
-
-  return null;
-}
-
-/** ---- Determine if an intent truly needs assetId to execute calls ---- */
-
-function intentNeedsAssetIdToExecuteCalls(intent: IntentSpec, functionIndex: FunctionIndex): boolean {
-  const calls = intent.recommendedCalls ?? [];
-  
-  for (const call of calls) {
-    const fnSpec = functionIndex[call.function];
-    if (!fnSpec) continue;
-    
-    // If the function requires assetId in its schema
-    const required = fnSpec.argsSchema?.required ?? [];
-    if (required.includes("assetId")) {
-      // Check if the intent provides a placeholder for assetId
-      const args = call.args ?? {};
-      for (const v of Object.values(args)) {
-        if (typeof v === "string" && isPlaceholderValue(v)) {
-          return true; // This call needs assetId to execute
-        }
-      }
-    }
-    
-    // If the function is getDashBoardData, it doesn't need assetId
-    if (call.function === "getDashBoardData") {
-      continue; // This call doesn't need assetId
-    }
-  }
-  
-  return false;
-}
-
-/** ---- Fleet query detection ---- */
-
-function looksLikeFleetQuery(userTextRaw: string, extraction: LocoQuery): boolean {
-  const lower = userTextRaw.toLowerCase();
-  
-  // If user explicitly mentioned a locomotive, it's not a fleet query
-  if (hasAnyLocoRef(extraction)) return false;
-  
-  // Fleet-level keywords
-  const fleetKeywords = [
-    "all", "fleet", "every", "each", "list", "how many", "count",
-    "which locomotives", "which locos", "which units",
-    "out of service", "out-of-service", "non-compliant", "noncompliant",
-    "daily due", "dailydue", "null muid", "null mu",
-  ];
-  
-  return fleetKeywords.some((kw) => lower.includes(kw));
-}
-
-/** ---- Helper predicates ---- */
-
-function hasAnyLocoRef(extraction: LocoQuery): boolean {
-  return !!(extraction.assetId || extraction.locoNo || extraction.name);
-}
-
-function hasLocoNoOrName(extraction: LocoQuery): boolean {
-  return !!(extraction.locoNo || extraction.name);
-}
-
-/** ---- BM25-ish Intent Ranking ---- */
-
-function buildIntentSearchIndex(intentCatalog: IntentCatalog, functionIndex: FunctionIndex): IntentSearchIndex {
-  const docs: IntentDoc[] = [];
+function buildAdapterIntentSearchIndex(intents: AdapterIntentDefinition[]): AdapterIntentSearchIndex {
+  const docs: AdapterIntentDoc[] = [];
   const df = new Map<string, number>();
 
-  for (const [intentId, spec] of Object.entries(intentCatalog)) {
+  for (const intent of intents) {
     const parts: string[] = [];
-    parts.push(spec.description ?? "");
-
-    for (const p of spec.triggerPhrases ?? []) parts.push(p);
-    for (const q of spec.exampleQuestions ?? []) parts.push(q);
-
-    for (const rc of spec.recommendedCalls ?? []) {
-      const fn = functionIndex[rc.function];
-      if (!fn) continue;
-      for (const tag of fn.tags ?? []) parts.push(tag);
-      for (const a of fn.aliases ?? []) parts.push(a);
+    
+    // Add description
+    parts.push(intent.description);
+    
+    // Add canonical examples (primary matching source)
+    for (const example of intent.canonicalExamples) {
+      parts.push(example);
+    }
+    
+    // Add tags
+    for (const tag of intent.tags) {
+      parts.push(tag);
     }
 
     const docText = parts.join(" ");
@@ -795,11 +526,11 @@ function buildIntentSearchIndex(intentCatalog: IntentCatalog, functionIndex: Fun
     for (const tok of new Set(tokens)) df.set(tok, (df.get(tok) ?? 0) + 1);
 
     docs.push({
-      intentId,
-      spec,
+      intentId: intent.id,
+      intent,
       tf,
       docLen: tokens.length,
-      triggerPhrasesNorm: (spec.triggerPhrases ?? []).map((x) => normalize(x)),
+      triggerPhrasesNorm: intent.canonicalExamples.map((x) => normalize(x)),
     });
   }
 
@@ -815,20 +546,20 @@ function buildIntentSearchIndex(intentCatalog: IntentCatalog, functionIndex: Fun
   return { docs, idf, avgDocLen };
 }
 
-function rankIntentsBM25(
+/** ---- Rank adapter intents using BM25 ---- */
+
+function rankAdapterIntentsBM25(
   normalizedUserText: string,
-  index: IntentSearchIndex,
-  opts: { allowMaintenanceIntents: boolean; fleetQuery: boolean },
-): Array<{ intentId: IntentId; score: number; debugWhy?: string[] }> {
+  index: AdapterIntentSearchIndex,
+  opts: { fleetQuery: boolean },
+): Array<{ intentId: string; score: number; debugWhy?: string[] }> {
   const qTokens = tokenize(normalizedUserText);
   const k1 = 1.2;
   const b = 0.75;
 
-  const results: Array<{ intentId: IntentId; score: number; debugWhy: string[] }> = [];
+  const results: Array<{ intentId: string; score: number; debugWhy: string[] }> = [];
 
   for (const doc of index.docs) {
-    if (!opts.allowMaintenanceIntents && doc.spec.safety === "maintenance_only") continue;
-
     let score = 0;
     const why: string[] = [];
 
@@ -875,38 +606,92 @@ function rankIntentsBM25(
   return results;
 }
 
-/** ---- Reply text builder ---- */
+/** ---- Short-form routing overrides ---- */
 
-function buildReplyText(input: {
-  intent: IntentSpec;
-  extraction: LocoQuery;
-  effectiveAssetId: string | null;
-  recommendedCalls: CallSpec[];
-  readFields: string[];
-}): string {
-  const { intent, extraction, effectiveAssetId, recommendedCalls, readFields } = input;
-
-  if (recommendedCalls.length === 0) {
-    return "I cannot recommend a specific function for this request. Please try rephrasing.";
+function shortFormIntentOverride(
+  userTextNormalized: string,
+  extraction: LocoQuery,
+  intents: AdapterIntentDefinition[],
+): string | null {
+  // If user just typed a loco number, default to ADAPTER_FIND_LOCOMOTIVE if available
+  if (/^\d{3,5}$/.test(userTextNormalized) && extraction.locoNo) {
+    const findIntent = intents.find((i) => i.id === "ADAPTER_FIND_LOCOMOTIVE");
+    if (findIntent) return findIntent.id;
   }
 
-  const locoLabel =
-    effectiveAssetId ||
-    extraction.locoNo ||
-    extraction.name ||
-    (intent.requiresLoco ? "that locomotive" : null);
-
-  const callList = recommendedCalls.map((c) => c.functionName).join(", ");
-
-  const fieldHint = readFields.length > 0
-    ? ` Then read: ${readFields.slice(0, 3).join(", ")}${readFields.length > 3 ? "..." : ""}`
-    : "";
-
-  if (intent.requiresLoco && locoLabel) {
-    return `To answer that for ${locoLabel}, run: ${callList}.${fieldHint} I'm only recommending the call(s); your app should execute them and show the results.`;
+  // If user just typed an assetId, default to ADAPTER_FIND_LOCOMOTIVE if available
+  if (/^[a-f0-9]{24}$/.test(userTextNormalized) && extraction.assetId) {
+    const findIntent = intents.find((i) => i.id === "ADAPTER_FIND_LOCOMOTIVE");
+    if (findIntent) return findIntent.id;
   }
 
-  return `To answer that, run: ${callList}.${fieldHint} I'm only recommending the call(s); your app should execute them and show the results.`;
+  return null;
+}
+
+/** ---- Fleet query detection ---- */
+
+function looksLikeFleetQuery(userTextRaw: string, extraction: LocoQuery): boolean {
+  const lower = userTextRaw.toLowerCase();
+  
+  // If user explicitly mentioned a locomotive, it's not a fleet query
+  if (hasAnyLocoRef(extraction)) return false;
+  
+  // Fleet-level keywords
+  const fleetKeywords = [
+    "all", "fleet", "every", "each", "list", "how many", "count",
+    "which locomotives", "which locos", "which units",
+    "out of service", "out-of-service", "non-compliant", "noncompliant",
+    "daily due", "dailydue", "null muid", "null mu",
+  ];
+  
+  return fleetKeywords.some((kw) => lower.includes(kw));
+}
+
+/** ---- Helper predicates ---- */
+
+function hasAnyLocoRef(extraction: LocoQuery): boolean {
+  return !!(extraction.assetId || extraction.locoNo || extraction.name);
+}
+
+function hasLocoNoOrName(extraction: LocoQuery): boolean {
+  return !!(extraction.locoNo || extraction.name);
+}
+
+/** ---- Extraction patching ---- */
+
+function patchExtraction(extraction: LocoQuery, userTextRaw: string): LocoQuery {
+  let locoNo = extraction.locoNo;
+  let assetId = extraction.assetId;
+  const name = extraction.name;
+
+  // A) Accept "locoNo 8778" pattern (extractor might miss this)
+  if (!locoNo) {
+    const m = userTextRaw.match(/\b(loco\s*no|locono|unit\s*no|unitno|engine\s*no|engineno|locomotive)\s*[:#\-]?\s*(\d{3,5})\b/i);
+    if (m) locoNo = m[2];
+  }
+
+  // B) Digits-only input => treat as locoNo
+  if (!locoNo && /^\s*\d{3,5}\s*$/.test(userTextRaw)) {
+    locoNo = userTextRaw.trim();
+  }
+
+  // C) AssetId-only input (24-hex)
+  if (!assetId && /^\s*[a-f0-9]{24}\s*$/i.test(userTextRaw)) {
+    assetId = userTextRaw.trim().toLowerCase();
+  }
+
+  return {
+    ...extraction,
+    assetId,
+    locoNo,
+    name,
+    assetIds: assetId ? uniqStrings([...(extraction.assetIds ?? []), assetId]) : extraction.assetIds,
+    locoNos: locoNo ? uniqStrings([...(extraction.locoNos ?? []), locoNo]) : extraction.locoNos,
+  };
+}
+
+function uniqStrings(arr: string[]): string[] {
+  return [...new Set(arr)];
 }
 
 /** ---- Snapshot extraction ---- */
@@ -950,35 +735,12 @@ function extractAssetDataMap(snapshot: unknown): Record<string, unknown> | null 
   return null;
 }
 
-/** ---- Catalog indexing + args validation ---- */
+/** ---- Catalog indexing ---- */
 
 function indexFunctionCatalog(cat: FunctionCatalogJson): FunctionIndex {
   const idx: FunctionIndex = {};
   for (const f of cat.functions ?? []) idx[f.name] = f;
   return idx;
-}
-
-function argsPassSchema(args: Record<string, unknown>, schema?: FunctionSpec["argsSchema"]): boolean {
-  if (!schema) return true;
-  if (schema.type !== "object") return false;
-
-  const required = schema.required ?? [];
-  for (const k of required) {
-    if (!(k in args)) return false;
-    const v = args[k];
-    if (isPlaceholderValue(v)) return false;
-    if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean" && typeof v !== "object") return false;
-    if (typeof v === "string" && v.trim().length === 0) return false;
-  }
-
-  if (schema.additionalProperties === false && schema.properties) {
-    const allowed = new Set(Object.keys(schema.properties));
-    for (const k of Object.keys(args)) {
-      if (!allowed.has(k)) return false;
-    }
-  }
-
-  return true;
 }
 
 /** ---- Redaction ---- */
@@ -1014,26 +776,6 @@ function tokenize(s: string): string[] {
     .filter((t) => !STOPWORDS.has(t));
 }
 
-function dedupeCalls(calls: CallSpec[]): CallSpec[] {
-  const seen = new Set<string>();
-  const out: CallSpec[] = [];
-  for (const c of calls) {
-    const key = `${c.functionName}::${stableStringify(c.args)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(c);
-  }
-  return out;
-}
-
-function stableStringify(obj: unknown): string {
-  if (!obj || typeof obj !== "object") return String(obj);
-  const o = obj as Record<string, unknown>;
-  const keys = Object.keys(o).sort();
-  const parts = keys.map((k) => `${k}:${stableStringify(o[k])}`);
-  return `{${parts.join(",")}}`;
-}
-
 function looksLikeWriteRequest(normalizedUserText: string): boolean {
   const isRefreshDashboard =
     /\b(refresh|reload)\b/i.test(normalizedUserText) &&
@@ -1049,7 +791,6 @@ function toDigits(s: string): string {
 }
 
 /** ---- Convenience factory ---- */
-
 export function createRuleBasedRecommender(config: RuleBasedRecommenderConfig): RuleBasedRecommender {
   return new RuleBasedRecommender(config);
 }
