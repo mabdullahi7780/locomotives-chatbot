@@ -4,7 +4,7 @@
   "description": "This chatbot is a **suggest-only assistant** for the locomotive dashboard.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
@@ -13,5 +13,8 @@
   "devDependencies": {
     "@types/node": "^25.0.3",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1"
   }
 }

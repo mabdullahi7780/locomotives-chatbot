@@ -4,25 +4,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import * as fs from "fs";
-import * as path from "path";
 import { validateChatResponse, validateStatusRules } from "../../contracts";
-
-type RecommenderModule = typeof import("../ruleBasedRecommender");
-
-function loadRecommenderModule(): RecommenderModule {
-  const tsPath = path.resolve(__dirname, "../ruleBasedRecommender.ts");
-
-  if (fs.existsSync(tsPath)) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(tsPath) as RecommenderModule;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require("../ruleBasedRecommender") as RecommenderModule;
-}
-
-const { createRuleBasedRecommender } = loadRecommenderModule();
+import { createRuleBasedRecommender } from "../ruleBasedRecommender.ts";
 
 // Minimal function catalog for testing
 const testFunctionCatalog = {

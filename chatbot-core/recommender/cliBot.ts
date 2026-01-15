@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * cliBot.ts - Interactive CLI for testing the Adapter-Aware RuleBasedRecommender
+ * cliBot.ts - Interactive CLI for testing the Hybrid Recommender (lexical + semantic)
  */
 
 import * as readline from "readline";
@@ -17,6 +17,7 @@ import type {
 import { CatalogGuard } from "../guards/catalogGuard";
 import { FieldGuard } from "../guards/fieldGurad";
 import { getLiteDashboardAdapter } from "../adapters/liteDashboardAdapter";
+import { createHybridRecommender } from "./hybridRecommender";
 
 type RuleBasedRecommenderCtor = typeof import("./ruleBasedRecommender").RuleBasedRecommender;
 
@@ -213,6 +214,7 @@ const recommenderConfig: RuleBasedRecommenderConfig = {
   functionCatalog,
   responseVersion: "1.0",
 };
+const RESPONSE_VERSION = recommenderConfig.responseVersion ?? "1.0";
 
 const recommender = new RuleBasedRecommender(recommenderConfig);
 console.log("✅ Initialized RuleBasedRecommender (adapter-aware)");
@@ -228,42 +230,33 @@ const catalogGuard = new CatalogGuard({
 });
 
 // Use the full function catalog for FieldGuard (not a simplified version)
-// The adapter generates safe field paths that should be allowed
+// Strict allowlist: only fields declared in FUNCTION_CATALOG.json
 const fieldGuard = new FieldGuard({
-  catalog: functionCatalog as unknown as Parameters<typeof FieldGuard>[0]["catalog"],
+  catalog: functionCatalog,
   safeMode: true,
   allowInspectorId: false,
   responseVersion: "1.0",
-  // Add common safe patterns that the adapter generates
-  additionalAllowedPatterns: [
-    // Dashboard data patterns
-    "status",
-    "value.summary",
-    "value.summary.*",
-    "value.assetData",
-    "value.assetData.*",
-    "value.assetData.<assetId>",
-    "value.assetData.<assetId>.*",
-    // Inspection patterns  
-    "<assetId>.date",
-    "<assetId>.title",
-    "<assetId>.testCode",
-    "<assetId>.user",
-    "<assetId>.user.name",
-    "<assetId>.nextExpiryDate",
-    "<assetId>.assetId",
-    // Credit patterns
-    "credit",
-    "outOfUseDays",
-    "status",
-    // Array patterns
-    "[].*_id",
-    "[].attributes",
-    "$",
-  ],
 });
 
 console.log("✅ Initialized CatalogGuard and FieldGuard (safeMode=true)");
+
+const hybrid = createHybridRecommender({
+  recommender,
+  adapter,
+  functionCatalog,
+  responseVersion: RESPONSE_VERSION,
+  retrieval: {
+    topK: 5,
+    minScore: 0.35,
+  },
+  thresholds: {
+    semMinScoreStrong: 0.5,
+    semMinGap: 0.05,
+  },
+  maxContextPacks: 3,
+  allowSoloLexicalWhenSemanticSkipped: true,
+});
+console.log("✅ Initialized HybridRecommender (lexical + semantic)");
 
 // ============================================================================
 // CLI STATE
@@ -276,7 +269,7 @@ let showGuardDetails = false;
 // PROCESS QUERY FUNCTION
 // ============================================================================
 
-function processQuery(query: string): void {
+async function processQuery(query: string): Promise<void> {
   const ctx: RecommenderContext = {
     dashboardSnapshot,
     dashboardDataFresh: !!dashboardSnapshot,
@@ -284,8 +277,8 @@ function processQuery(query: string): void {
   };
 
   console.log("\n" + "─".repeat(60));
-
-  const rawResponse = recommender.recommend(query, ctx);
+  const result = await hybrid.recommend(query, ctx);
+  const rawResponse = result.response;
 
   if (debugMode) {
     console.log("\n[Debug] Raw Recommender Response:");
@@ -299,6 +292,30 @@ function processQuery(query: string): void {
     }
   }
 
+  if (debugMode && result.diagnostics) {
+    const diagnostics = result.diagnostics;
+    console.log("\n[Debug] Hybrid Routing:");
+    console.log(
+      `  Lexical: top=${diagnostics.lexTopIntentId ?? "none"} score=${diagnostics.lexTopScore?.toFixed(2) ?? "0"}`,
+    );
+    console.log(
+      `  Semantic: topFn=${diagnostics.semTopFunctionName ?? "none"} score=${diagnostics.semMax?.toFixed(2) ?? "0"} gap=${diagnostics.semGap?.toFixed(2) ?? "0"}`,
+    );
+    console.log(
+      `  Agreement: ${diagnostics.agreement ? "yes" : "no"} semDecent=${diagnostics.semDecent ? "yes" : "no"} lexDecent=${diagnostics.lexDecent ? "yes" : "no"}`,
+    );
+    if (diagnostics.semanticSkipped) {
+      console.log("  Semantic: skipped (id-like query)");
+    }
+    if (diagnostics.semanticError) {
+      console.log(`  SemanticError: ${diagnostics.semanticError}`);
+    }
+  }
+
+  finalizeResponse(rawResponse);
+}
+
+function finalizeResponse(rawResponse: ChatResponse): void {
   const catalogResult = catalogGuard.guard(rawResponse);
   let guardedResponse = catalogResult.response;
 
@@ -398,7 +415,7 @@ function showHelp(): void {
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║              Dashboard Advisor Bot - CLI                  ║
-║           Adapter-Aware Testing Interface                 ║
+║        Hybrid Recommender Testing Interface               ║
 ╚════════════════════════════════════════════════════════════╝
 
 Commands:
@@ -552,7 +569,7 @@ function loadSnapshot(filePath: string): void {
 
 console.log("\n" + "═".repeat(60));
 console.log("  Dashboard Advisor Bot - CLI");
-console.log("  Adapter-Aware RuleBasedRecommender");
+  console.log("  Hybrid Recommender (lexical + semantic)");
 console.log(`  Service: ${adapter.getServiceName()}`);
 console.log("═".repeat(60));
 console.log(`Dashboard loaded: ${dashboardSnapshot ? "Yes ✅" : "No ⚠️ (use 'load <path>')"}`);
@@ -567,7 +584,7 @@ const rl = readline.createInterface({
 rl.setPrompt("You> ");
 rl.prompt();
 
-rl.on("line", (line: string) => {
+rl.on("line", async (line: string) => {
   const msg = line.trim();
 
   if (!msg) {
@@ -627,7 +644,7 @@ rl.on("line", (line: string) => {
 
     default:
       try {
-        processQuery(msg);
+        await processQuery(msg);
       } catch (err) {
         console.error("\n❌ Error processing query:", (err as Error).message);
         if (debugMode) {

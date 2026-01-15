@@ -37,33 +37,29 @@ import type {
   AdapterMethod,
 } from "./../adapters/adapterTypes";
 import { getLiteDashboardAdapter } from "./../adapters/liteDashboardAdapter";
+import type { FunctionCatalogJson as GuardFunctionCatalogJson } from "../guards/catalogGuard";
 
 /** ---- Re-export contract types for backward compatibility ---- */
 export type { ChatStatus, ExecutionPolicy, CallSpec, ChatResponse };
 
+export type LexicalIntentScore = { intentId: string; score: number; debugWhy?: string[] };
+export type LexicalRankResult = {
+  ranked: LexicalIntentScore[];
+  overrideIntentId: string | null;
+};
+
 /** ---- Function catalog types ---- */
 
-export interface FunctionCatalogJson {
-  version: string;
-  service?: string;
-  functions: Array<{
-    name: string;
-    recommendable: boolean;
-    readOnly: boolean;
-    tags?: string[];
-    aliases?: string[];
-    argsSchema?: {
-      type: "object";
-      additionalProperties?: boolean;
-      required?: string[];
-      properties?: Record<string, unknown>;
-    };
-    requires?: {
-      requiredEntities?: string[];
-      missingEntityPrompt?: string;
-    };
-  }>;
-}
+export type FunctionCatalogJson = GuardFunctionCatalogJson & {
+  functions: Array<
+    GuardFunctionCatalogJson["functions"][number] & {
+      requires?: {
+        requiredEntities?: string[];
+        missingEntityPrompt?: string;
+      };
+    }
+  >;
+};
 
 type FunctionSpec = FunctionCatalogJson["functions"][number];
 type FunctionIndex = Record<string, FunctionSpec>;
@@ -168,15 +164,13 @@ export class RuleBasedRecommender {
     this.searchIndex = buildAdapterIntentSearchIndex(this.adapter.getIntents());
   }
 
-  recommend(userTextRaw: string, ctx: RecommenderContext = {}): ChatResponse {
+  precheck(userTextRaw: string, ctx: RecommenderContext = {}): ChatResponse | null {
     const userText = normalize(userTextRaw);
 
-    // 0) Empty input
     if (!userText) {
       return this.needsFollowup("What would you like to know about the locomotive dashboard?");
     }
 
-    // 1) Redaction refusal
     if (this.isSensitiveRequest(userText)) {
       return this.outOfScope(
         "I can't help with inspector emails/signatures (or related metadata). Those fields are always redacted.",
@@ -184,13 +178,60 @@ export class RuleBasedRecommender {
       );
     }
 
-    // 2) Write/side-effect request refusal
     if (!ctx.allowMaintenanceIntents && looksLikeWriteRequest(userText)) {
       return this.outOfScope(
         "This request looks like it would change data (update/rebuild). This chatbot is suggest-only and blocks write/maintenance actions.",
         ["Safe alternative: ask to *view* the current state/credit/inspections instead."],
       );
     }
+
+    return null;
+  }
+
+  rankIntents(userTextRaw: string): LexicalRankResult {
+    const userText = normalize(userTextRaw);
+    if (!userText) {
+      return { ranked: [], overrideIntentId: null };
+    }
+
+    const extractionBase = extractLocoQuery(userTextRaw);
+    const extraction = patchExtraction(extractionBase, userTextRaw);
+    const overrideIntentId = shortFormIntentOverride(userText, extraction, this.adapter.getIntents());
+
+    const ranked = rankAdapterIntentsBM25(userText, this.searchIndex, {
+      fleetQuery: looksLikeFleetQuery(userTextRaw, extraction),
+    });
+
+    return { ranked, overrideIntentId };
+  }
+
+  recommendForIntent(
+    intentId: string,
+    userTextRaw: string,
+    ctx: RecommenderContext = {},
+    extraNotes?: string[],
+  ): ChatResponse {
+    const precheck = this.precheck(userTextRaw, ctx);
+    if (precheck) return precheck;
+
+    const extractionBase = extractLocoQuery(userTextRaw);
+    const extraction = patchExtraction(extractionBase, userTextRaw);
+
+    const adapterIntent = this.adapter.getIntents().find((i) => i.id === intentId);
+    if (!adapterIntent) {
+      return this.error("Internal error: matched an intent that does not exist in the adapter.", [
+        `intentId=${intentId}`,
+      ]);
+    }
+
+    return this.buildResponseForIntent(adapterIntent, extraction, ctx, extraNotes);
+  }
+
+  recommend(userTextRaw: string, ctx: RecommenderContext = {}): ChatResponse {
+    const precheck = this.precheck(userTextRaw, ctx);
+    if (precheck) return precheck;
+
+    const userText = normalize(userTextRaw);
 
     // 3) Extract entities (and patch extraction for locoNo patterns + bare numbers)
     const extractionBase = extractLocoQuery(userTextRaw);
@@ -246,6 +287,15 @@ export class RuleBasedRecommender {
       return this.error("Internal error: matched an intent that does not exist in the adapter.", [`intentId=${matchedIntentId}`]);
     }
 
+    return this.buildResponseForIntent(adapterIntent, extraction, ctx, best?.debugWhy);
+  }
+
+  private buildResponseForIntent(
+    adapterIntent: AdapterIntentDefinition,
+    extraction: LocoQuery,
+    ctx: RecommenderContext,
+    extraNotes?: string[],
+  ): ChatResponse {
     // 7) Check if intent requires locomotive reference
     if (adapterIntent.requiresLocoRef && !hasAnyLocoRef(extraction)) {
       return this.needsFollowup(
@@ -352,7 +402,7 @@ export class RuleBasedRecommender {
     notes.push(`Adapter Method: ${adapterIntent.adapterMethod}`);
     notes.push(`Service: ${this.adapter.getServiceName()}`);
     
-    if (best?.debugWhy?.length) notes.push(...best.debugWhy);
+    if (extraNotes?.length) notes.push(...extraNotes);
 
     // ✅ Use the adapter's reply text which includes the mapping and field info
     return {
